@@ -1,0 +1,21 @@
+{
+  "name": "control_gastos_operativos",
+  "version": "1.0.0",
+  "description": "Dashboard corporativo para el control de gastos operativos con base de datos JSON",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "express",
+    "dashboard",
+    "gastos",
+    "sqlite"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

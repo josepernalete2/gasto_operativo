@@ -2,19 +2,12 @@
 // APP STATE & CONSTANTS
 // ============================================================================
 
-const SEED_EXPENSES = [
-    { id: "EXP-101", date: "2026-05-10", branch: "Sede Norte", category: "Nómina", description: "Nómina quincenal de personal operativo", amount: 4850.00, status: "Pagado" },
-    { id: "EXP-102", date: "2026-05-12", branch: "Sede Sur", category: "Servicios", description: "Consumo eléctrico oficinas administrativas - Abril", amount: 385.50, status: "Pagado" },
-    { id: "EXP-103", date: "2026-05-15", branch: "Sede Este", category: "Proveedores", description: "Compra de suministros y consumibles de oficina", amount: 890.00, status: "Pendiente" },
-    { id: "EXP-104", date: "2026-05-18", branch: "Sede Oeste", category: "Mantenimiento", description: "Mantenimiento preventivo de aire acondicionado central", amount: 1250.00, status: "Pagado" },
-    { id: "EXP-105", date: "2026-05-20", branch: "Sede Norte", category: "Tecnología", description: "Suscripción anual a licencias ERP en la nube", amount: 2400.00, status: "Pendiente" },
-    { id: "EXP-106", date: "2026-05-22", branch: "Sede Sur", category: "Marketing", description: "Campaña publicitaria Google Ads & Redes Sociales", amount: 1500.00, status: "Pagado" },
-    { id: "EXP-107", date: "2026-05-24", branch: "Sede Oeste", category: "Proveedores", description: "Servicio externo de mensajería y distribución", amount: 620.00, status: "Pagado" },
-    { id: "EXP-108", date: "2026-05-25", branch: "Sede Este", category: "Servicios", description: "Servicio de internet simétrico y telefonía VoIP", amount: 180.00, status: "Pagado" }
-];
-
+let expenses = [];
 let BRANCHES = [];
 let CATEGORIES = [];
+let editingId = null; // Stores ID of the row being edited in-line
+let editingSettingId = null; // Stores "branch-X" or "category-X" while editing settings
+
 const BRANCH_COLORS = [
     '#3b82f6', // Norte - Blue
     '#10b981', // Sur - Green
@@ -26,9 +19,6 @@ const BRANCH_COLORS = [
     '#14b8a6'  // Teal
 ];
 
-let expenses = [];
-let editingId = null; // Stores ID of the row being edited in-line
-
 // Chart.js instances
 let branchChartInstance = null;
 let categoryChartInstance = null;
@@ -38,9 +28,9 @@ let statusChartInstance = null;
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener("DOMContentLoaded", () => {
-    // Load expenses from LocalStorage or initialize with seed data
-    loadExpenses();
+document.addEventListener("DOMContentLoaded", async () => {
+    // Load expenses and settings parameters from backend database
+    await loadExpenses();
     
     // Populate filter and form dropdown options dynamically
     populateDropdowns();
@@ -67,32 +57,19 @@ document.addEventListener("DOMContentLoaded", () => {
     lucide.createIcons();
 });
 
-// Load expenses data
-function loadExpenses() {
-    // Load branches
-    const storedBranches = localStorage.getItem("branches_data");
-    if (storedBranches) {
-        BRANCHES = JSON.parse(storedBranches);
-    } else {
-        BRANCHES = ["Sede Norte", "Sede Sur", "Sede Este", "Sede Oeste"];
-        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
-    }
-
-    // Load categories
-    const storedCategories = localStorage.getItem("categories_data");
-    if (storedCategories) {
-        CATEGORIES = JSON.parse(storedCategories);
-    } else {
-        CATEGORIES = ["Servicios", "Nómina", "Proveedores", "Mantenimiento", "Tecnología", "Marketing"];
-        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
-    }
-
-    const stored = localStorage.getItem("expenses_data");
-    if (stored) {
-        expenses = JSON.parse(stored);
-    } else {
-        expenses = [...SEED_EXPENSES];
-        saveExpensesToStorage();
+// Load expenses data from backend database
+async function loadExpenses() {
+    try {
+        const response = await fetch('/api/data');
+        if (!response.ok) throw new Error("Error cargando datos del servidor.");
+        const data = await response.json();
+        
+        expenses = data.expenses || [];
+        BRANCHES = data.branches || [];
+        CATEGORIES = data.categories || [];
+    } catch (error) {
+        console.error("Database connection error:", error);
+        showToast("Error al conectar con la base de datos.", "danger");
     }
 }
 
@@ -133,10 +110,6 @@ function populateDropdowns() {
         CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
 }
 
-function saveExpensesToStorage() {
-    localStorage.setItem("expenses_data", JSON.stringify(expenses));
-}
-
 function initHeaderDate() {
     const dateEl = document.getElementById("header-date");
     if (dateEl) {
@@ -171,7 +144,7 @@ function initTheme() {
 }
 
 function updateThemeToggleIcon(theme) {
-    // Lucide automatically updates class names, but we handle it via CSS visibility
+    // Handled via CSS classes
 }
 
 // Helper to get colors depending on theme
@@ -210,7 +183,6 @@ function showToast(message, type = "success") {
     container.appendChild(toast);
     lucide.createIcons();
     
-    // Automatically delete from DOM after animations complete
     setTimeout(() => {
         toast.remove();
     }, 4000);
@@ -560,12 +532,10 @@ function renderTable(filteredData) {
         const tr = document.createElement("tr");
         tr.id = `row-${exp.id}`;
         
-        // Check if this row is in edit-mode
         if (editingId === exp.id) {
             tr.className = "editing-row";
             tr.innerHTML = getInlineEditingTemplate(exp);
         } else {
-            // Standard static display
             // Safe branch pill style resolution
             let branchClass = "norte";
             if (exp.branch) {
@@ -614,7 +584,6 @@ function renderTable(filteredData) {
             `;
         }
         
-        // Add double click listener to rows for faster inline edit activation
         if (editingId !== exp.id) {
             tr.addEventListener("dblclick", () => {
                 startInlineEdit(exp.id);
@@ -627,14 +596,11 @@ function renderTable(filteredData) {
     lucide.createIcons();
 }
 
-// Generate inline editor inputs for active editing row
 function getInlineEditingTemplate(exp) {
-    // Generate Select Options for Branch
     const branchOptions = BRANCHES.map(b => 
         `<option value="${b}" ${exp.branch === b ? 'selected' : ''}>${b}</option>`
     ).join("");
     
-    // Generate Select Options for Category
     const categoryOptions = CATEGORIES.map(c => 
         `<option value="${c}" ${exp.category === c ? 'selected' : ''}>${c}</option>`
     ).join("");
@@ -679,17 +645,14 @@ function getInlineEditingTemplate(exp) {
     `;
 }
 
-// Date helper to make formats look more polished
 function formatDate(dateStr) {
     const parts = dateStr.split("-");
     if (parts.length === 3) {
-        // Displays as DD/MM/YYYY
         return `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
     return dateStr;
 }
 
-// Trigger render, charts, and metrics
 function renderDashboard() {
     const filtered = getFilteredData();
     updateKPIs(filtered);
@@ -698,23 +661,20 @@ function renderDashboard() {
 }
 
 // ============================================================================
-// DATA MUTATION HANDLERS
+// DATA MUTATION HANDLERS (BACKEND SYNC)
 // ============================================================================
 
-// Inline Editing Control: Enable row input templates
 window.startInlineEdit = function(id) {
     editingId = id;
     renderDashboard();
 };
 
-// Inline Editing Control: Cancel edit mode
 window.cancelInlineEdit = function() {
     editingId = null;
     renderDashboard();
 };
 
-// Inline Editing Control: Save edited values
-window.saveInlineEdit = function(id) {
+window.saveInlineEdit = async function(id) {
     const dateInput = document.getElementById(`edit-date-${id}`);
     const branchInput = document.getElementById(`edit-branch-${id}`);
     const categoryInput = document.getElementById(`edit-category-${id}`);
@@ -722,7 +682,6 @@ window.saveInlineEdit = function(id) {
     const amountInput = document.getElementById(`edit-amount-${id}`);
     const statusInput = document.getElementById(`edit-status-${id}`);
     
-    // Inline validation checks
     const dateVal = dateInput.value;
     const branchVal = branchInput.value;
     const categoryVal = categoryInput.value;
@@ -735,39 +694,59 @@ window.saveInlineEdit = function(id) {
         return;
     }
     
-    // Find item and update properties
-    const index = expenses.findIndex(e => e.id === id);
-    if (index !== -1) {
-        expenses[index] = {
-            id,
-            date: dateVal,
-            branch: branchVal,
-            category: categoryVal,
-            description: descVal,
-            amount: amountVal,
-            status: statusVal
-        };
+    try {
+        const response = await fetch(`/api/expenses/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: dateVal,
+                branch: branchVal,
+                category: categoryVal,
+                description: descVal,
+                amount: amountVal,
+                status: statusVal
+            })
+        });
         
-        saveExpensesToStorage();
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "No se pudo guardar la modificación.");
+        }
+        
+        const updated = await response.json();
+        const index = expenses.findIndex(e => e.id === id);
+        if (index !== -1) {
+            expenses[index] = updated;
+        }
+        
         editingId = null;
         renderDashboard();
         showToast(`Registro ${id} actualizado correctamente.`, "success");
+    } catch (error) {
+        showToast(`Error: ${error.message}`, "danger");
     }
 };
 
-// Delete record action
-window.deleteExpense = function(id) {
+window.deleteExpense = async function(id) {
     if (confirm(`¿Está seguro de que desea eliminar el registro de gasto ${id}?`)) {
-        expenses = expenses.filter(e => e.id !== id);
-        saveExpensesToStorage();
-        
-        // If the item deleted was in edit mode, reset the edit state
-        if (editingId === id) {
-            editingId = null;
+        try {
+            const response = await fetch(`/api/expenses/${id}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar.");
+            }
+            
+            expenses = expenses.filter(e => e.id !== id);
+            if (editingId === id) editingId = null;
+            
+            renderDashboard();
+            showToast(`Registro ${id} eliminado con éxito.`, "info");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
         }
-        
-        renderDashboard();
-        showToast(`Registro ${id} eliminado con éxito.`, "info");
     }
 };
 
@@ -802,13 +781,9 @@ function setupEventListeners() {
     const expenseForm = document.getElementById("expense-form");
     
     const openModal = () => {
-        // Set default date to today in form
         document.getElementById("form-date").value = new Date().toISOString().substring(0, 10);
-        
-        // Remove validation classes
         const formGroups = expenseForm.querySelectorAll(".form-group");
         formGroups.forEach(g => g.classList.remove("invalid"));
-        
         modalOverlay.classList.remove("hidden");
     };
     
@@ -821,18 +796,16 @@ function setupEventListeners() {
     closeModalBtn.addEventListener("click", closeModal);
     cancelModalBtn.addEventListener("click", closeModal);
     
-    // Close modal when clicking outside overlay
     modalOverlay.addEventListener("click", (e) => {
         if (e.target === modalOverlay) {
             closeModal();
         }
     });
     
-    // 4. Modal Form Submit handler
-    expenseForm.addEventListener("submit", (e) => {
+    // 4. Modal Form Submit handler (Async database creation)
+    expenseForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         
-        // Retrieve inputs
         const dateInput = document.getElementById("form-date");
         const branchInput = document.getElementById("form-branch");
         const categoryInput = document.getElementById("form-category");
@@ -848,90 +821,54 @@ function setupEventListeners() {
             }
         }
         
-        // Validation Checks
         let isValid = true;
         
-        // Date Check
-        if (!dateInput.value) {
-            invalidateField(dateInput);
-            isValid = false;
-        } else {
-            validateField(dateInput);
-        }
+        if (!dateInput.value) { invalidateField(dateInput); isValid = false; } else { validateField(dateInput); }
+        if (!branchInput.value) { invalidateField(branchInput); isValid = false; } else { validateField(branchInput); }
+        if (!categoryInput.value) { invalidateField(categoryInput); isValid = false; } else { validateField(categoryInput); }
+        if (!descInput.value.trim()) { invalidateField(descInput); isValid = false; } else { validateField(descInput); }
         
-        // Branch Check
-        if (!branchInput.value) {
-            invalidateField(branchInput);
-            isValid = false;
-        } else {
-            validateField(branchInput);
-        }
-        
-        // Category Check
-        if (!categoryInput.value) {
-            invalidateField(categoryInput);
-            isValid = false;
-        } else {
-            validateField(categoryInput);
-        }
-        
-        // Description Check
-        if (!descInput.value.trim()) {
-            invalidateField(descInput);
-            isValid = false;
-        } else {
-            validateField(descInput);
-        }
-        
-        // Amount Check
         const amountVal = parseFloat(amountInput.value);
-        if (isNaN(amountVal) || amountVal <= 0) {
-            invalidateField(amountInput);
-            isValid = false;
-        } else {
-            validateField(amountInput);
-        }
+        if (isNaN(amountVal) || amountVal <= 0) { invalidateField(amountInput); isValid = false; } else { validateField(amountInput); }
         
-        // If not valid, stop
         if (!isValid) return;
         
-        // Generate new custom ID EXP-XXX
-        const nextIdNumber = expenses.reduce((max, curr) => {
-            const num = parseInt(curr.id.split("-")[1]);
-            return num > max ? num : max;
-        }, 100) + 1;
-        const newId = `EXP-${nextIdNumber}`;
-        
-        // Construct new expense object
-        const newExpense = {
-            id: newId,
-            date: dateInput.value,
-            branch: branchInput.value,
-            category: categoryInput.value,
-            description: descInput.value.trim(),
-            amount: amountVal,
-            status: statusVal
-        };
-        
-        // Save to state & LocalStorage
-        expenses.push(newExpense);
-        saveExpensesToStorage();
-        
-        // Render & close
-        renderDashboard();
-        closeModal();
-        
-        showToast(`Gasto ${newId} registrado con éxito.`, "success");
+        try {
+            const response = await fetch('/api/expenses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: dateInput.value,
+                    branch: branchInput.value,
+                    category: categoryInput.value,
+                    description: descInput.value.trim(),
+                    amount: amountVal,
+                    status: statusVal
+                })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo guardar el gasto.");
+            }
+            
+            const addedExpense = await response.json();
+            expenses.push(addedExpense);
+            
+            renderDashboard();
+            closeModal();
+            showToast(`Gasto ${addedExpense.id} registrado con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
     });
 
     // 5. Print Report Button Click handler
     document.getElementById("btn-print-report").addEventListener("click", () => {
-        // Populates Date/Time
         const printDateEl = document.getElementById("print-date");
         const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
         printDateEl.textContent = new Date().toLocaleString('es-ES', options);
         
-        // Populates Applied Filters Summary
         const searchVal = document.getElementById("filter-search").value.trim();
         const branchVal = document.getElementById("filter-branch").value;
         const categoryVal = document.getElementById("filter-category").value;
@@ -953,7 +890,6 @@ function setupEventListeners() {
     });
 }
 
-// Helpers for modal field validations visual state
 function invalidateField(inputEl) {
     const parent = inputEl.closest(".form-group");
     if (parent) parent.classList.add("invalid");
@@ -967,8 +903,6 @@ function validateField(inputEl) {
 // ============================================================================
 // SYSTEM PARAMETERS SETTINGS MODAL & LISTS
 // ============================================================================
-
-let editingSettingId = null; // Stores "branch-X" or "category-X" while editing
 
 function initSettingsModal() {
     const settingsOverlay = document.getElementById("modal-settings-overlay");
@@ -1001,56 +935,76 @@ function initSettingsModal() {
         }
     });
     
-    // Tab Toggles
     document.getElementById("tab-branches").addEventListener("click", () => switchSettingsTab('branches'));
     document.getElementById("tab-categories").addEventListener("click", () => switchSettingsTab('categories'));
     
-    // Add Forms
     const addBranchForm = document.getElementById("add-branch-form");
     const addCategoryForm = document.getElementById("add-category-form");
     
-    addBranchForm.addEventListener("submit", (e) => {
+    // Add Branch (Async Backend)
+    addBranchForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-branch-name");
         const name = input.value.trim();
         
         if (!name) return;
-        if (BRANCHES.includes(name)) {
-            showToast("Error: La sede ya está registrada.", "danger");
-            return;
+        
+        try {
+            const response = await fetch('/api/settings/branches', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo agregar la sede.");
+            }
+            
+            BRANCHES = await response.json();
+            input.value = "";
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            showToast(`Sede "${name}" agregada correctamente.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
         }
-        
-        BRANCHES.push(name);
-        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
-        input.value = "";
-        
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        showToast(`Sede "${name}" agregada correctamente.`, "success");
     });
     
-    addCategoryForm.addEventListener("submit", (e) => {
+    // Add Category (Async Backend)
+    addCategoryForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-category-name");
         const name = input.value.trim();
         
         if (!name) return;
-        if (CATEGORIES.includes(name)) {
-            showToast("Error: La categoría ya está registrada.", "danger");
-            return;
+        
+        try {
+            const response = await fetch('/api/settings/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo agregar la categoría.");
+            }
+            
+            CATEGORIES = await response.json();
+            input.value = "";
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            showToast(`Categoría "${name}" agregada correctamente.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
         }
-        
-        CATEGORIES.push(name);
-        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
-        input.value = "";
-        
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        showToast(`Categoría "${name}" agregada correctamente.`, "success");
     });
 }
 
@@ -1074,7 +1028,6 @@ function switchSettingsTab(tabName) {
 }
 
 function renderSettingsLists() {
-    // 1. Render Branches
     const branchList = document.getElementById("settings-branches-list");
     branchList.innerHTML = "";
     
@@ -1110,7 +1063,6 @@ function renderSettingsLists() {
         branchList.appendChild(li);
     });
     
-    // 2. Render Categories
     const categoryList = document.getElementById("settings-categories-list");
     categoryList.innerHTML = "";
     
@@ -1159,8 +1111,8 @@ window.cancelSettingsEdit = function() {
     renderSettingsLists();
 };
 
-// Renaming Branch Logic
-window.saveSettingsBranch = function(index) {
+// Renaming Sede (Async Backend cascade update)
+window.saveSettingsBranch = async function(index) {
     const input = document.getElementById(`edit-branch-input-${index}`);
     const newName = input.value.trim();
     const oldName = BRANCHES[index];
@@ -1170,37 +1122,37 @@ window.saveSettingsBranch = function(index) {
         cancelSettingsEdit();
         return;
     }
-    if (BRANCHES.includes(newName)) {
-        showToast("Error: Ya existe una sede con ese nombre.", "danger");
-        return;
-    }
     
-    // Rename occurrences in expenses array
-    expenses.forEach(exp => {
-        if (exp.branch === oldName) {
-            exp.branch = newName;
+    try {
+        const response = await fetch('/api/settings/branches', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ oldName, newName })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "No se pudo renombrar la sede.");
         }
-    });
-    
-    // Update branch array
-    BRANCHES[index] = newName;
-    
-    // Save to LocalStorage
-    localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
-    saveExpensesToStorage();
-    
-    // Reset state & refresh UI
-    editingSettingId = null;
-    populateDropdowns();
-    updateChartsStructure();
-    renderDashboard();
-    renderSettingsLists();
-    
-    showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        
+        const result = await response.json();
+        BRANCHES = result.branches;
+        expenses = result.expenses;
+        
+        editingSettingId = null;
+        populateDropdowns();
+        updateChartsStructure();
+        renderDashboard();
+        renderSettingsLists();
+        
+        showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+    } catch (error) {
+        showToast(`Error: ${error.message}`, "danger");
+    }
 };
 
-// Renaming Category Logic
-window.saveSettingsCategory = function(index) {
+// Renaming Categoría (Async Backend cascade update)
+window.saveSettingsCategory = async function(index) {
     const input = document.getElementById(`edit-category-input-${index}`);
     const newName = input.value.trim();
     const oldName = CATEGORIES[index];
@@ -1210,49 +1162,50 @@ window.saveSettingsCategory = function(index) {
         cancelSettingsEdit();
         return;
     }
-    if (CATEGORIES.includes(newName)) {
-        showToast("Error: Ya existe una categoría con ese nombre.", "danger");
-        return;
-    }
     
-    // Rename occurrences in expenses array
-    expenses.forEach(exp => {
-        if (exp.category === oldName) {
-            exp.category = newName;
+    try {
+        const response = await fetch('/api/settings/categories', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ oldName, newName })
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "No se pudo renombrar la categoría.");
         }
-    });
-    
-    // Update category array
-    CATEGORIES[index] = newName;
-    
-    // Save to LocalStorage
-    localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
-    saveExpensesToStorage();
-    
-    // Reset state & refresh UI
-    editingSettingId = null;
-    populateDropdowns();
-    updateChartsStructure();
-    renderDashboard();
-    renderSettingsLists();
-    
-    showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        
+        const result = await response.json();
+        CATEGORIES = result.categories;
+        expenses = result.expenses;
+        
+        editingSettingId = null;
+        populateDropdowns();
+        updateChartsStructure();
+        renderDashboard();
+        renderSettingsLists();
+        
+        showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+    } catch (error) {
+        showToast(`Error: ${error.message}`, "danger");
+    }
 };
 
-// Deleting Branch Logic
-window.deleteSettingsBranch = function(index) {
+// Deleting Sede (Async Backend validation)
+window.deleteSettingsBranch = async function(index) {
     const branchName = BRANCHES[index];
     
-    // Integrity check
-    const associatedCount = expenses.filter(exp => exp.branch === branchName).length;
-    if (associatedCount > 0) {
-        showToast(`No se puede eliminar "${branchName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
-        return;
-    }
-    
-    if (confirm(`¿Está seguro de que desea eliminar la sede "${branchName}"?`)) {
-        BRANCHES.splice(index, 1);
-        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+    try {
+        const response = await fetch(`/api/settings/branches/${encodeURIComponent(branchName)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "No se pudo eliminar la sede.");
+        }
+        
+        BRANCHES = await response.json();
         
         populateDropdowns();
         updateChartsStructure();
@@ -1260,23 +1213,26 @@ window.deleteSettingsBranch = function(index) {
         renderSettingsLists();
         
         showToast(`Sede "${branchName}" eliminada correctamente.`, "info");
+    } catch (error) {
+        showToast(`Error: ${error.message}`, "warning");
     }
 };
 
-// Deleting Category Logic
-window.deleteSettingsCategory = function(index) {
+// Deleting Categoría (Async Backend validation)
+window.deleteSettingsCategory = async function(index) {
     const catName = CATEGORIES[index];
     
-    // Integrity check
-    const associatedCount = expenses.filter(exp => exp.category === catName).length;
-    if (associatedCount > 0) {
-        showToast(`No se puede eliminar la categoría "${catName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
-        return;
-    }
-    
-    if (confirm(`¿Está seguro de que desea eliminar la categoría "${catName}"?`)) {
-        CATEGORIES.splice(index, 1);
-        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+    try {
+        const response = await fetch(`/api/settings/categories/${encodeURIComponent(catName)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "No se pudo eliminar la categoría.");
+        }
+        
+        CATEGORIES = await response.json();
         
         populateDropdowns();
         updateChartsStructure();
@@ -1284,6 +1240,7 @@ window.deleteSettingsCategory = function(index) {
         renderSettingsLists();
         
         showToast(`Categoría "${catName}" eliminada correctamente.`, "info");
+    } catch (error) {
+        showToast(`Error: ${error.message}`, "warning");
     }
 };
-
