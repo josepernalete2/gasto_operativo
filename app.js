@@ -24,12 +24,15 @@ let branchChartInstance = null;
 let categoryChartInstance = null;
 let statusChartInstance = null;
 
+// Dual Mode Indicator: check if app is running directly from filesystem (static file)
+const isLocalFile = window.location.protocol === 'file:';
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
 
 document.addEventListener("DOMContentLoaded", async () => {
-    // Load expenses and settings parameters from backend database
+    // Load expenses and settings parameters (handles server mode or local fallback)
     await loadExpenses();
     
     // Populate filter and form dropdown options dynamically
@@ -57,19 +60,69 @@ document.addEventListener("DOMContentLoaded", async () => {
     lucide.createIcons();
 });
 
-// Load expenses data from backend database
+// Load expenses data (Dual-Mode: LocalStorage fallback vs API Server)
 async function loadExpenses() {
-    try {
-        const response = await fetch('/api/data');
-        if (!response.ok) throw new Error("Error cargando datos del servidor.");
-        const data = await response.json();
+    if (isLocalFile) {
+        // --- LOCALSTORAGE FALLBACK MODE ---
+        const storedBranches = localStorage.getItem("branches_data");
+        if (storedBranches) {
+            BRANCHES = JSON.parse(storedBranches);
+        } else {
+            BRANCHES = ["Sede Norte", "Sede Sur", "Sede Este", "Sede Oeste"];
+            localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+        }
+
+        const storedCategories = localStorage.getItem("categories_data");
+        if (storedCategories) {
+            CATEGORIES = JSON.parse(storedCategories);
+        } else {
+            CATEGORIES = ["Servicios", "Nómina", "Proveedores", "Mantenimiento", "Tecnología", "Marketing"];
+            localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+        }
+
+        const stored = localStorage.getItem("expenses_data");
+        if (stored) {
+            expenses = JSON.parse(stored);
+        } else {
+            // Seed default expenses
+            expenses = [
+                { id: "EXP-101", date: "2026-05-10", branch: "Sede Norte", category: "Nómina", description: "Nómina quincenal de personal operativo", amount: 4850.00, status: "Pagado" },
+                { id: "EXP-102", date: "2026-05-12", branch: "Sede Sur", category: "Servicios", description: "Consumo eléctrico oficinas administrativas - Abril", amount: 385.50, status: "Pagado" },
+                { id: "EXP-103", date: "2026-05-15", branch: "Sede Este", category: "Proveedores", description: "Compra de suministros y consumibles de oficina", amount: 890.00, status: "Pendiente" },
+                { id: "EXP-104", date: "2026-05-18", branch: "Sede Oeste", category: "Mantenimiento", description: "Mantenimiento preventivo de aire acondicionado central", amount: 1250.00, status: "Pagado" },
+                { id: "EXP-105", date: "2026-05-20", branch: "Sede Norte", category: "Tecnología", description: "Suscripción anual a licencias ERP en la nube", amount: 2400.00, status: "Pendiente" },
+                { id: "EXP-106", date: "2026-05-22", branch: "Sede Sur", category: "Marketing", description: "Campaña publicitaria Google Ads & Redes Sociales", amount: 1500.00, status: "Pagado" },
+                { id: "EXP-107", date: "2026-05-24", branch: "Sede Oeste", category: "Proveedores", description: "Servicio externo de mensajería y distribución", amount: 620.00, status: "Pagado" },
+                { id: "EXP-108", date: "2026-05-25", branch: "Sede Este", category: "Servicios", description: "Servicio de internet simétrico y telefonía VoIP", amount: 180.00, status: "Pagado" }
+            ];
+            saveExpensesToStorage();
+        }
         
-        expenses = data.expenses || [];
-        BRANCHES = data.branches || [];
-        CATEGORIES = data.categories || [];
-    } catch (error) {
-        console.error("Database connection error:", error);
-        showToast("Error al conectar con la base de datos.", "danger");
+        // Show delay warning toast to clarify they are running in local mode
+        setTimeout(() => {
+            showToast("Ejecutando en Modo Local (LocalStorage). Abre http://localhost:3000 para usar la Base de Datos.", "info");
+        }, 800);
+        
+    } else {
+        // --- SERVER DATABASE MODE ---
+        try {
+            const response = await fetch('/api/data');
+            if (!response.ok) throw new Error("Error cargando datos del servidor.");
+            const data = await response.json();
+            
+            expenses = data.expenses || [];
+            BRANCHES = data.branches || [];
+            CATEGORIES = data.categories || [];
+        } catch (error) {
+            console.error("Database connection error:", error);
+            showToast("Error al conectar con la base de datos.", "danger");
+        }
+    }
+}
+
+function saveExpensesToStorage() {
+    if (isLocalFile) {
+        localStorage.setItem("expenses_data", JSON.stringify(expenses));
     }
 }
 
@@ -661,7 +714,7 @@ function renderDashboard() {
 }
 
 // ============================================================================
-// DATA MUTATION HANDLERS (BACKEND SYNC)
+// DATA MUTATION HANDLERS (DUAL SYNC: LOCAL VS SERVER)
 // ============================================================================
 
 window.startInlineEdit = function(id) {
@@ -694,58 +747,90 @@ window.saveInlineEdit = async function(id) {
         return;
     }
     
-    try {
-        const response = await fetch(`/api/expenses/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+    if (isLocalFile) {
+        // --- LOCAL FALLBACK ---
+        const index = expenses.findIndex(e => e.id === id);
+        if (index !== -1) {
+            expenses[index] = {
+                id,
                 date: dateVal,
                 branch: branchVal,
                 category: categoryVal,
                 description: descVal,
                 amount: amountVal,
                 status: statusVal
-            })
-        });
-        
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "No se pudo guardar la modificación.");
+            };
+            saveExpensesToStorage();
+            editingId = null;
+            renderDashboard();
+            showToast(`Registro ${id} actualizado correctamente en LocalStorage.`, "success");
         }
-        
-        const updated = await response.json();
-        const index = expenses.findIndex(e => e.id === id);
-        if (index !== -1) {
-            expenses[index] = updated;
+    } else {
+        // --- SERVER REST API ---
+        try {
+            const response = await fetch(`/api/expenses/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: dateVal,
+                    branch: branchVal,
+                    category: categoryVal,
+                    description: descVal,
+                    amount: amountVal,
+                    status: statusVal
+                })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo guardar la modificación.");
+            }
+            
+            const updated = await response.json();
+            const index = expenses.findIndex(e => e.id === id);
+            if (index !== -1) {
+                expenses[index] = updated;
+            }
+            
+            editingId = null;
+            renderDashboard();
+            showToast(`Registro ${id} actualizado correctamente.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
         }
-        
-        editingId = null;
-        renderDashboard();
-        showToast(`Registro ${id} actualizado correctamente.`, "success");
-    } catch (error) {
-        showToast(`Error: ${error.message}`, "danger");
     }
 };
 
 window.deleteExpense = async function(id) {
     if (confirm(`¿Está seguro de que desea eliminar el registro de gasto ${id}?`)) {
-        try {
-            const response = await fetch(`/api/expenses/${id}`, {
-                method: 'DELETE'
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo eliminar.");
-            }
-            
+        if (isLocalFile) {
+            // --- LOCAL FALLBACK ---
             expenses = expenses.filter(e => e.id !== id);
+            saveExpensesToStorage();
             if (editingId === id) editingId = null;
             
             renderDashboard();
-            showToast(`Registro ${id} eliminado con éxito.`, "info");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            showToast(`Registro ${id} eliminado de LocalStorage.`, "info");
+        } else {
+            // --- SERVER REST API ---
+            try {
+                const response = await fetch(`/api/expenses/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "No se pudo eliminar.");
+                }
+                
+                expenses = expenses.filter(e => e.id !== id);
+                if (editingId === id) editingId = null;
+                
+                renderDashboard();
+                showToast(`Registro ${id} eliminado con éxito.`, "info");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
         }
     }
 };
@@ -802,7 +887,7 @@ function setupEventListeners() {
         }
     });
     
-    // 4. Modal Form Submit handler (Async database creation)
+    // 4. Modal Form Submit handler (Dual-Mode: Local vs Server creation)
     expenseForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         
@@ -833,33 +918,60 @@ function setupEventListeners() {
         
         if (!isValid) return;
         
-        try {
-            const response = await fetch('/api/expenses', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    date: dateInput.value,
-                    branch: branchInput.value,
-                    category: categoryInput.value,
-                    description: descInput.value.trim(),
-                    amount: amountVal,
-                    status: statusVal
-                })
-            });
+        if (isLocalFile) {
+            // --- LOCAL FALLBACK ---
+            const nextIdNumber = expenses.reduce((max, curr) => {
+                const num = parseInt(curr.id.split("-")[1]);
+                return num > max ? num : max;
+            }, 100) + 1;
+            const newId = `EXP-${nextIdNumber}`;
             
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo guardar el gasto.");
-            }
+            const newExpense = {
+                id: newId,
+                date: dateInput.value,
+                branch: branchInput.value,
+                category: categoryInput.value,
+                description: descInput.value.trim(),
+                amount: amountVal,
+                status: statusVal
+            };
             
-            const addedExpense = await response.json();
-            expenses.push(addedExpense);
+            expenses.push(newExpense);
+            saveExpensesToStorage();
             
             renderDashboard();
             closeModal();
-            showToast(`Gasto ${addedExpense.id} registrado con éxito.`, "success");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            showToast(`Gasto ${newId} registrado con éxito en LocalStorage.`, "success");
+        } else {
+            // --- SERVER REST API ---
+            try {
+                const response = await fetch('/api/expenses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        date: dateInput.value,
+                        branch: branchInput.value,
+                        category: categoryInput.value,
+                        description: descInput.value.trim(),
+                        amount: amountVal,
+                        status: statusVal
+                    })
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "No se pudo guardar el gasto.");
+                }
+                
+                const addedExpense = await response.json();
+                expenses.push(addedExpense);
+                
+                renderDashboard();
+                closeModal();
+                showToast(`Gasto ${addedExpense.id} registrado con éxito.`, "success");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
         }
     });
 
@@ -901,7 +1013,7 @@ function validateField(inputEl) {
 }
 
 // ============================================================================
-// SYSTEM PARAMETERS SETTINGS MODAL & LISTS
+// SYSTEM PARAMETERS SETTINGS MODAL & LISTS (DUAL SYNC)
 // ============================================================================
 
 function initSettingsModal() {
@@ -941,7 +1053,7 @@ function initSettingsModal() {
     const addBranchForm = document.getElementById("add-branch-form");
     const addCategoryForm = document.getElementById("add-category-form");
     
-    // Add Branch (Async Backend)
+    // Add Branch (Dual Mode)
     addBranchForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-branch-name");
@@ -949,32 +1061,51 @@ function initSettingsModal() {
         
         if (!name) return;
         
-        try {
-            const response = await fetch('/api/settings/branches', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo agregar la sede.");
+        if (isLocalFile) {
+            // --- LOCAL FALLBACK ---
+            if (BRANCHES.includes(name)) {
+                showToast("Error: La sede ya está registrada.", "danger");
+                return;
             }
             
-            BRANCHES = await response.json();
+            BRANCHES.push(name);
+            localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
             input.value = "";
             
             populateDropdowns();
             updateChartsStructure();
             renderDashboard();
             renderSettingsLists();
-            showToast(`Sede "${name}" agregada correctamente.`, "success");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            showToast(`Sede "${name}" agregada correctamente en LocalStorage.`, "success");
+        } else {
+            // --- SERVER REST API ---
+            try {
+                const response = await fetch('/api/settings/branches', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "No se pudo agregar la sede.");
+                }
+                
+                BRANCHES = await response.json();
+                input.value = "";
+                
+                populateDropdowns();
+                updateChartsStructure();
+                renderDashboard();
+                renderSettingsLists();
+                showToast(`Sede "${name}" agregada correctamente.`, "success");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
         }
     });
     
-    // Add Category (Async Backend)
+    // Add Category (Dual Mode)
     addCategoryForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-category-name");
@@ -982,28 +1113,47 @@ function initSettingsModal() {
         
         if (!name) return;
         
-        try {
-            const response = await fetch('/api/settings/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo agregar la categoría.");
+        if (isLocalFile) {
+            // --- LOCAL FALLBACK ---
+            if (CATEGORIES.includes(name)) {
+                showToast("Error: La categoría ya está registrada.", "danger");
+                return;
             }
             
-            CATEGORIES = await response.json();
+            CATEGORIES.push(name);
+            localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
             input.value = "";
             
             populateDropdowns();
             updateChartsStructure();
             renderDashboard();
             renderSettingsLists();
-            showToast(`Categoría "${name}" agregada correctamente.`, "success");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            showToast(`Categoría "${name}" agregada en LocalStorage.`, "success");
+        } else {
+            // --- SERVER REST API ---
+            try {
+                const response = await fetch('/api/settings/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "No se pudo agregar la categoría.");
+                }
+                
+                CATEGORIES = await response.json();
+                input.value = "";
+                
+                populateDropdowns();
+                updateChartsStructure();
+                renderDashboard();
+                renderSettingsLists();
+                showToast(`Categoría "${name}" agregada correctamente.`, "success");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
         }
     });
 }
@@ -1111,7 +1261,7 @@ window.cancelSettingsEdit = function() {
     renderSettingsLists();
 };
 
-// Renaming Sede (Async Backend cascade update)
+// Renaming Sede (Dual-Mode cascade)
 window.saveSettingsBranch = async function(index) {
     const input = document.getElementById(`edit-branch-input-${index}`);
     const newName = input.value.trim();
@@ -1123,21 +1273,20 @@ window.saveSettingsBranch = async function(index) {
         return;
     }
     
-    try {
-        const response = await fetch('/api/settings/branches', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ oldName, newName })
-        });
-        
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "No se pudo renombrar la sede.");
+    if (isLocalFile) {
+        // --- LOCAL FALLBACK ---
+        if (BRANCHES.includes(newName)) {
+            showToast("Error: Ya existe una sede con ese nombre.", "danger");
+            return;
         }
+        // Update local arrays and cascade expenses
+        expenses.forEach(exp => {
+            if (exp.branch === oldName) exp.branch = newName;
+        });
+        BRANCHES[index] = newName;
         
-        const result = await response.json();
-        BRANCHES = result.branches;
-        expenses = result.expenses;
+        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+        saveExpensesToStorage();
         
         editingSettingId = null;
         populateDropdowns();
@@ -1145,13 +1294,39 @@ window.saveSettingsBranch = async function(index) {
         renderDashboard();
         renderSettingsLists();
         
-        showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
-    } catch (error) {
-        showToast(`Error: ${error.message}`, "danger");
+        showToast(`Sede renombrada a "${newName}" en LocalStorage.`, "success");
+    } else {
+        // --- SERVER REST API ---
+        try {
+            const response = await fetch('/api/settings/branches', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ oldName, newName })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo renombrar la sede.");
+            }
+            
+            const result = await response.json();
+            BRANCHES = result.branches;
+            expenses = result.expenses;
+            
+            editingSettingId = null;
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
     }
 };
 
-// Renaming Categoría (Async Backend cascade update)
+// Renaming Categoría (Dual-Mode cascade)
 window.saveSettingsCategory = async function(index) {
     const input = document.getElementById(`edit-category-input-${index}`);
     const newName = input.value.trim();
@@ -1163,21 +1338,19 @@ window.saveSettingsCategory = async function(index) {
         return;
     }
     
-    try {
-        const response = await fetch('/api/settings/categories', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ oldName, newName })
-        });
-        
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "No se pudo renombrar la categoría.");
+    if (isLocalFile) {
+        // --- LOCAL FALLBACK ---
+        if (CATEGORIES.includes(newName)) {
+            showToast("Error: Ya existe una categoría con ese nombre.", "danger");
+            return;
         }
+        expenses.forEach(exp => {
+            if (exp.category === oldName) exp.category = newName;
+        });
+        CATEGORIES[index] = newName;
         
-        const result = await response.json();
-        CATEGORIES = result.categories;
-        expenses = result.expenses;
+        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+        saveExpensesToStorage();
         
         editingSettingId = null;
         populateDropdowns();
@@ -1185,62 +1358,132 @@ window.saveSettingsCategory = async function(index) {
         renderDashboard();
         renderSettingsLists();
         
-        showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
-    } catch (error) {
-        showToast(`Error: ${error.message}`, "danger");
+        showToast(`Categoría renombrada a "${newName}" en LocalStorage.`, "success");
+    } else {
+        // --- SERVER REST API ---
+        try {
+            const response = await fetch('/api/settings/categories', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ oldName, newName })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo renombrar la categoría.");
+            }
+            
+            const result = await response.json();
+            CATEGORIES = result.categories;
+            expenses = result.expenses;
+            
+            editingSettingId = null;
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
     }
 };
 
-// Deleting Sede (Async Backend validation)
+// Deleting Sede (Dual-Mode check)
 window.deleteSettingsBranch = async function(index) {
     const branchName = BRANCHES[index];
     
-    try {
-        const response = await fetch(`/api/settings/branches/${encodeURIComponent(branchName)}`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "No se pudo eliminar la sede.");
+    if (isLocalFile) {
+        // --- LOCAL FALLBACK ---
+        const associatedCount = expenses.filter(exp => exp.branch === branchName).length;
+        if (associatedCount > 0) {
+            showToast(`No se puede eliminar "${branchName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
+            return;
         }
         
-        BRANCHES = await response.json();
-        
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        
-        showToast(`Sede "${branchName}" eliminada correctamente.`, "info");
-    } catch (error) {
-        showToast(`Error: ${error.message}`, "warning");
+        if (confirm(`¿Está seguro de que desea eliminar la sede "${branchName}"?`)) {
+            BRANCHES.splice(index, 1);
+            localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede "${branchName}" eliminada de LocalStorage.`, "info");
+        }
+    } else {
+        // --- SERVER REST API ---
+        try {
+            const response = await fetch(`/api/settings/branches/${encodeURIComponent(branchName)}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar la sede.");
+            }
+            
+            BRANCHES = await response.json();
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede "${branchName}" eliminada correctamente.`, "info");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "warning");
+        }
     }
 };
 
-// Deleting Categoría (Async Backend validation)
+// Deleting Categoría (Dual-Mode check)
 window.deleteSettingsCategory = async function(index) {
     const catName = CATEGORIES[index];
     
-    try {
-        const response = await fetch(`/api/settings/categories/${encodeURIComponent(catName)}`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "No se pudo eliminar la categoría.");
+    if (isLocalFile) {
+        // --- LOCAL FALLBACK ---
+        const associatedCount = expenses.filter(exp => exp.category === catName).length;
+        if (associatedCount > 0) {
+            showToast(`No se puede eliminar la categoría "${catName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
+            return;
         }
         
-        CATEGORIES = await response.json();
-        
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        
-        showToast(`Categoría "${catName}" eliminada correctamente.`, "info");
-    } catch (error) {
-        showToast(`Error: ${error.message}`, "warning");
+        if (confirm(`¿Está seguro de que desea eliminar la categoría "${catName}"?`)) {
+            CATEGORIES.splice(index, 1);
+            localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría "${catName}" eliminada de LocalStorage.`, "info");
+        }
+    } else {
+        // --- SERVER REST API ---
+        try {
+            const response = await fetch(`/api/settings/categories/${encodeURIComponent(catName)}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar la categoría.");
+            }
+            
+            CATEGORIES = await response.json();
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría "${catName}" eliminada correctamente.`, "info");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "warning");
+        }
     }
 };
