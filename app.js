@@ -24,8 +24,15 @@ let branchChartInstance = null;
 let categoryChartInstance = null;
 let statusChartInstance = null;
 
-// Dual Mode Indicator: check if app is running directly from filesystem (static file)
+// Dual Mode Indicators:
+// 1. Check if running directly from local filesystem (file://)
 const isLocalFile = window.location.protocol === 'file:';
+
+// 2. Define API Base URL dynamically. If running on another port (like Live Server 5500), 
+// route database API requests to the Express server on port 3000.
+const API_BASE_URL = isLocalFile 
+    ? '' 
+    : (window.location.port === '3000' ? '' : 'http://localhost:3000');
 
 // ============================================================================
 // INITIALIZATION
@@ -106,7 +113,7 @@ async function loadExpenses() {
     } else {
         // --- SERVER DATABASE MODE ---
         try {
-            const response = await fetch('/api/data');
+            const response = await fetch(`${API_BASE_URL}/api/data`);
             if (!response.ok) throw new Error("Error cargando datos del servidor.");
             const data = await response.json();
             
@@ -768,7 +775,7 @@ window.saveInlineEdit = async function(id) {
     } else {
         // --- SERVER REST API ---
         try {
-            const response = await fetch(`/api/expenses/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -814,7 +821,7 @@ window.deleteExpense = async function(id) {
         } else {
             // --- SERVER REST API ---
             try {
-                const response = await fetch(`/api/expenses/${id}`, {
+                const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
                     method: 'DELETE'
                 });
                 
@@ -945,7 +952,7 @@ function setupEventListeners() {
         } else {
             // --- SERVER REST API ---
             try {
-                const response = await fetch('/api/expenses', {
+                const response = await fetch(`${API_BASE_URL}/api/expenses`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1080,7 +1087,7 @@ function initSettingsModal() {
         } else {
             // --- SERVER REST API ---
             try {
-                const response = await fetch('/api/settings/branches', {
+                const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
@@ -1132,7 +1139,7 @@ function initSettingsModal() {
         } else {
             // --- SERVER REST API ---
             try {
-                const response = await fetch('/api/settings/categories', {
+                const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
@@ -1279,7 +1286,6 @@ window.saveSettingsBranch = async function(index) {
             showToast("Error: Ya existe una sede con ese nombre.", "danger");
             return;
         }
-        // Update local arrays and cascade expenses
         expenses.forEach(exp => {
             if (exp.branch === oldName) exp.branch = newName;
         });
@@ -1298,7 +1304,7 @@ window.saveSettingsBranch = async function(index) {
     } else {
         // --- SERVER REST API ---
         try {
-            const response = await fetch('/api/settings/branches', {
+            const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ oldName, newName })
@@ -1362,7 +1368,7 @@ window.saveSettingsCategory = async function(index) {
     } else {
         // --- SERVER REST API ---
         try {
-            const response = await fetch('/api/settings/categories', {
+            const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ oldName, newName })
@@ -1416,7 +1422,7 @@ window.deleteSettingsBranch = async function(index) {
     } else {
         // --- SERVER REST API ---
         try {
-            const response = await fetch(`/api/settings/branches/${encodeURIComponent(branchName)}`, {
+            const response = await fetch(`${API_BASE_URL}/api/settings/branches/${encodeURIComponent(branchName)}`, {
                 method: 'DELETE'
             });
             
@@ -1465,7 +1471,7 @@ window.deleteSettingsCategory = async function(index) {
     } else {
         // --- SERVER REST API ---
         try {
-            const response = await fetch(`/api/settings/categories/${encodeURIComponent(catName)}`, {
+            const response = await fetch(`${API_BASE_URL}/api/settings/categories/${encodeURIComponent(catName)}`, {
                 method: 'DELETE'
             });
             
