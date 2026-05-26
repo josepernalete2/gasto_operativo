@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Dashboard corporativo para la gestión y análisis de gastos operativos en tiempo real para múltiples sedes.">
+    <title>Control de Gastos Operativos | Dashboard Corporativo</title>
+    
+    <!-- Google Fonts: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <div class="logo-icon">
+                        <i data-lucide="trending-up"></i>
+                    </div>
+                    <span class="logo-text">Gastos<span>Corp</span></span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <a href="#" class="menu-item active" id="nav-dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#expenses-section" class="menu-item" id="nav-expenses">
+                    <i data-lucide="receipt"></i>
+                    <span>Transacciones</span>
+                </a>
+                <a href="#" class="menu-item" id="nav-settings">
+                    <i data-lucide="settings"></i>
+                    <span>Configuración</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">AD</div>
+                    <div class="user-info">
+                        <span class="user-name">Administrador</span>
+                        <span class="user-role">Finanzas</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h1>Dashboard de Control Financiero</h1>
+                    <p class="header-subtitle">Monitoreo de gastos operativos en tiempo real por sede</p>
+                </div>
+                
+                <div class="header-actions">
+                    <!-- Quick Info Date -->
+                    <div class="current-date-badge">
+                        <i data-lucide="calendar"></i>
+                        <span id="header-date">26 de Mayo, 2026</span>
+                    </div>
+                    
+                    <!-- Theme Toggle -->
+                    <button class="theme-toggle-btn" id="theme-toggle" aria-label="Cambiar tema de color">
+                        <i data-lucide="moon" class="icon-dark"></i>
+                        <i data-lucide="sun" class="icon-light"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Content Scroll Container -->
+            <div class="content-body">
+                <!-- Print Only Header -->
+                <div class="print-only-container" id="print-header">
+                    <div class="print-logo-header">
+                        <span class="print-logo">GastosCorp</span>
+                        <span class="print-report-title">Reporte Ejecutivo de Gastos Operativos</span>
+                    </div>
+                    <div class="print-meta-grid">
+                        <div><strong>Fecha de Generación:</strong> <span id="print-date"></span></div>
+                        <div><strong>Generado por:</strong> Administrador de Finanzas</div>
+                        <div class="print-full-width"><strong>Filtros Activos:</strong> <span id="print-filters-applied">Ninguno</span></div>
+                    </div>
+                </div>
+
+                <!-- KPI Section -->
+                <section class="kpi-grid">
+                    <!-- KPI 1: Gasto Total -->
+                    <div class="kpi-card" id="kpi-total">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Gasto Total General</span>
+                            <div class="kpi-icon-box blue">
+                                <i data-lucide="dollar-sign"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="kpi-value-total">$0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-trend positive" id="kpi-trend-total">
+                                <i data-lucide="activity"></i> Todos los registros incluidos
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- KPI 2: Pagado -->
+                    <div class="kpi-card" id="kpi-paid">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Total Pagado</span>
+                            <div class="kpi-icon-box green">
+                                <i data-lucide="check-circle-2"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="kpi-value-paid">$0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="kpi-sub-paid">0 transacciones</span>
+                        </div>
+                    </div>
+
+                    <!-- KPI 3: Pendiente -->
+                    <div class="kpi-card" id="kpi-pending">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Total Pendiente</span>
+                            <div class="kpi-icon-box orange">
+                                <i data-lucide="alert-circle"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="kpi-value-pending">$0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext text-warning" id="kpi-sub-pending">0 transacciones pendientes</span>
+                        </div>
+                    </div>
+
+                    <!-- KPI 4: Sede con Mayor Gasto -->
+                    <div class="kpi-card" id="kpi-top-branch">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Sede Mayor Consumo</span>
+                            <div class="kpi-icon-box purple">
+                                <i data-lucide="building-2"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="kpi-value-branch">N/A</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="kpi-sub-branch">Gasto máximo registrado</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Analytics / Charts Grid -->
+                <section class="analytics-grid">
+                    <!-- Chart 1: Distribución por Sede -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <h2>Gastos por Sede</h2>
+                            <p class="chart-subtitle">Desglose monetario en las 4 sedes de la empresa</p>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="branchChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Distribución por Categoría -->
+                    <div class="chart-card">
+                        <div class="chart-card-header">
+                            <h2>Gastos por Categoría</h2>
+                            <p class="chart-subtitle">Clasificación operativa de egresos</p>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="categoryChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 3: Balance Pagado vs Pendiente -->
+                    <div class="chart-card full-mobile-width">
+                        <div class="chart-card-header">
+                            <h2>Estado de Pagos</h2>
+                            <p class="chart-subtitle">Relación porcentual de facturación</p>
+                        </div>
+                        <div class="chart-container compact">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Operations & Filters Bar -->
+                <section class="table-section-header" id="expenses-section">
+                    <div class="table-title">
+                        <h2>Registro de Egresos</h2>
+                        <span class="badge" id="expenses-count">0 Gastos</span>
+                    </div>
+                    
+                    <div style="display: flex; gap: 12px;">
+                        <button class="btn btn-secondary" id="btn-print-report">
+                            <i data-lucide="printer"></i>
+                            <span>Imprimir</span>
+                        </button>
+                        <button class="btn btn-primary" id="btn-open-modal">
+                            <i data-lucide="plus"></i>
+                            <span>Agregar Gasto</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Filters Control Box -->
+                <section class="filters-card">
+                    <div class="filters-grid">
+                        <!-- Global Search -->
+                        <div class="filter-group search-group">
+                            <label for="filter-search">Buscador</label>
+                            <div class="search-input-wrapper">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="filter-search" placeholder="Buscar por descripción o ID...">
+                            </div>
+                        </div>
+
+                        <!-- Branch Filter -->
+                        <div class="filter-group">
+                            <label for="filter-branch">Sede</label>
+                            <select id="filter-branch">
+                                <option value="all">Todas las Sedes</option>
+                            </select>
+                        </div>
+
+                        <!-- Category Filter -->
+                        <div class="filter-group">
+                            <label for="filter-category">Categoría</label>
+                            <select id="filter-category">
+                                <option value="all">Todas las Categorías</option>
+                            </select>
+                        </div>
+
+                        <!-- Date range - From -->
+                        <div class="filter-group">
+                            <label for="filter-date-start">Desde</label>
+                            <input type="date" id="filter-date-start">
+                        </div>
+
+                        <!-- Date range - To -->
+                        <div class="filter-group">
+                            <label for="filter-date-end">Hasta</label>
+                            <input type="date" id="filter-date-end">
+                        </div>
+                    </div>
+                    
+                    <div class="filters-actions">
+                        <button class="btn btn-secondary" id="btn-clear-filters">
+                            <i data-lucide="filter-x"></i>
+                            <span>Limpiar Filtros</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Data Table Section -->
+                <section class="table-card">
+                    <div class="table-responsive">
+                        <table class="expenses-table" id="expenses-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Fecha</th>
+                                    <th>Sede</th>
+                                    <th>Categoría</th>
+                                    <th>Descripción</th>
+                                    <th class="text-right">Monto (USD)</th>
+                                    <th>Estado</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <!-- Filas generadas dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Table Empty State -->
+                    <div class="table-empty-state hidden" id="table-empty">
+                        <div class="empty-icon">
+                            <i data-lucide="receipt"></i>
+                        </div>
+                        <h3>No se encontraron registros</h3>
+                        <p>Intenta ajustar los filtros de búsqueda o agrega un nuevo gasto.</p>
+                    </div>
+                </section>
+
+                <!-- Print Only Footer -->
+                <div class="print-only-container" id="print-footer">
+                    <div class="print-signature-section">
+                        <div class="signature-box">
+                            <div class="signature-line"></div>
+                            <p>Firma de Preparación</p>
+                            <p class="signature-sub">Administrador de Finanzas</p>
+                        </div>
+                        <div class="signature-box">
+                            <div class="signature-line"></div>
+                            <p>Firma de Aprobación</p>
+                            <p class="signature-sub">Director General / CFO</p>
+                        </div>
+                    </div>
+                    <p class="print-disclaimer">Documento oficial de control de gastos internos para auditoría. Todos los montos se reportan en USD.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Floating / Modal Add Expense Form -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>Registrar Nuevo Gasto</h2>
+                <button class="btn-close-modal" id="btn-close-modal" aria-label="Cerrar modal">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            
+            <form id="expense-form" novalidate>
+                <div class="form-grid">
+                    <!-- Date -->
+                    <div class="form-group">
+                        <label for="form-date">Fecha *</label>
+                        <input type="date" id="form-date" required>
+                        <div class="invalid-feedback">Por favor ingrese una fecha válida.</div>
+                    </div>
+                    
+                    <!-- Branch -->
+                    <div class="form-group">
+                        <label for="form-branch">Sede *</label>
+                        <select id="form-branch" required>
+                            <option value="" disabled selected>Seleccione una sede...</option>
+                        </select>
+                        <div class="invalid-feedback">Por favor seleccione una sede.</div>
+                    </div>
+                    
+                    <!-- Category -->
+                    <div class="form-group">
+                        <label for="form-category">Categoría *</label>
+                        <select id="form-category" required>
+                            <option value="" disabled selected>Seleccione una categoría...</option>
+                        </select>
+                        <div class="invalid-feedback">Por favor seleccione una categoría.</div>
+                    </div>
+                    
+                    <!-- Amount -->
+                    <div class="form-group">
+                        <label for="form-amount">Monto (USD) *</label>
+                        <div class="amount-input-wrapper">
+                            <span class="currency-symbol">$</span>
+                            <input type="number" id="form-amount" min="0.01" step="0.01" placeholder="0.00" required>
+                        </div>
+                        <div class="invalid-feedback">Ingrese un monto mayor a cero.</div>
+                    </div>
+
+                    <!-- Description -->
+                    <div class="form-group full-width">
+                        <label for="form-description">Descripción *</label>
+                        <input type="text" id="form-description" placeholder="Ej. Pago de servicio de energía eléctrica mayo" required>
+                        <div class="invalid-feedback">La descripción es obligatoria.</div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="form-group full-width checkbox-group">
+                        <label>Estado de Pago *</label>
+                        <div class="radio-options">
+                            <label class="radio-label">
+                                <input type="radio" name="form-status" value="Pagado" checked>
+                                <span class="custom-radio"></span>
+                                <span class="radio-text">Pagado</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="form-status" value="Pendiente">
+                                <span class="custom-radio"></span>
+                                <span class="radio-text">Pendiente</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i data-lucide="save"></i>
+                        <span>Guardar Registro</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+
+    <!-- Modal Configuration / Settings -->
+    <div class="modal-overlay hidden" id="modal-settings-overlay">
+        <div class="modal-card" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Configuración de Parámetros</h2>
+                <button class="btn-close-modal" id="btn-close-settings" aria-label="Cerrar modal">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            
+            <div class="settings-tabs">
+                <button class="tab-btn active" id="tab-branches">
+                    <i data-lucide="building-2"></i>
+                    <span>Sedes</span>
+                </button>
+                <button class="tab-btn" id="tab-categories">
+                    <i data-lucide="tag"></i>
+                    <span>Categorías</span>
+                </button>
+            </div>
+            
+            <!-- Content Tab: Branches -->
+            <div class="tab-content" id="content-branches">
+                <form id="add-branch-form" class="settings-add-form">
+                    <div class="settings-input-row">
+                        <input type="text" id="new-branch-name" placeholder="Nueva Sede (ej: Sede Centro)" required>
+                        <button type="submit" class="btn btn-primary">
+                            <i data-lucide="plus"></i>
+                            <span>Añadir</span>
+                        </button>
+                    </div>
+                </form>
+                <div class="settings-list-wrapper">
+                    <ul class="settings-list" id="settings-branches-list">
+                        <!-- Generado dinámicamente -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Content Tab: Categories -->
+            <div class="tab-content hidden" id="content-categories">
+                <form id="add-category-form" class="settings-add-form">
+                    <div class="settings-input-row">
+                        <input type="text" id="new-category-name" placeholder="Nueva Categoría (ej: Logística)" required>
+                        <button type="submit" class="btn btn-primary">
+                            <i data-lucide="plus"></i>
+                            <span>Añadir</span>
+                        </button>
+                    </div>
+                </form>
+                <div class="settings-list-wrapper">
+                    <ul class="settings-list" id="settings-categories-list">
+                        <!-- Generado dinámicamente -->
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btn-close-settings-footer">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Custom App Script -->
+    <script src="app.js"></script>
+</body>
+</html>
