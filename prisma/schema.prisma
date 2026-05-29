@@ -8,13 +8,16 @@ datasource db {
 }
 
 model Expense {
-  id          String   @id
-  date        String
-  branch      String
-  category    String
-  description String
-  amount      Float
-  status      String
+  id           String   @id
+  date         String
+  branch       String
+  category     String
+  description  String
+  amount       Float    // Original amount
+  currency     String   @default("USD") // "USD", "VES", "EUR"
+  exchangeRate Float    @default(1.0)   // Rate to USD at time of transaction
+  amountUsd    Float    @default(0.0)   // Computed USD value
+  status       String
 }
 
 model Branch {
@@ -23,4 +26,20 @@ model Branch {
 
 model Category {
   name String @id
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  role      String   // "ADMIN" or "SEDE"
+  branch    String?  // Associated branch name if role is "SEDE"
+  createdAt DateTime @default(now())
+}
+
+model ExchangeRate {
+  id        String   @id @default("latest")
+  vesRate   Float    // VES per 1 USD
+  eurRate   Float    // EUR per 1 USD
+  updatedAt DateTime @updatedAt
 }

@@ -21,7 +21,46 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="app-container">
+    <!-- Pantalla de Inicio de Sesión (Login) -->
+    <div class="login-overlay" id="login-section">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">
+                    <div class="login-logo-icon">
+                        <i data-lucide="trending-up"></i>
+                    </div>
+                </div>
+                <h2 class="login-title">Control de Gastos</h2>
+                <p class="login-subtitle">Dashboard de Control Corporativo</p>
+            </div>
+            
+            <form id="login-form" class="login-form">
+                <div class="login-input-group">
+                    <label for="login-username">Usuario</label>
+                    <div class="login-input-wrapper">
+                        <i data-lucide="user"></i>
+                        <input type="text" id="login-username" placeholder="Ingresa tu usuario" required class="login-input">
+                    </div>
+                </div>
+                
+                <div class="login-input-group">
+                    <label for="login-password">Contraseña</label>
+                    <div class="login-input-wrapper">
+                        <i data-lucide="lock"></i>
+                        <input type="password" id="login-password" placeholder="Ingresa tu contraseña" required class="login-input">
+                    </div>
+                </div>
+                
+                <button type="submit" class="login-btn">
+                    <span>Ingresar</span>
+                    <i data-lucide="log-in"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Contenedor del Dashboard -->
+    <div class="app-container hidden" id="dashboard-section">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -48,14 +87,18 @@
                 </a>
             </nav>
             
-            <div class="sidebar-footer">
+            <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 12px;">
                 <div class="user-profile">
-                    <div class="user-avatar">AD</div>
+                    <div class="user-avatar" id="sidebar-user-avatar">AD</div>
                     <div class="user-info">
-                        <span class="user-name">Administrador</span>
-                        <span class="user-role">Finanzas</span>
+                        <span class="user-name" id="sidebar-user-name">Administrador</span>
+                        <span class="user-role" id="sidebar-user-role">Finanzas</span>
                     </div>
                 </div>
+                <button class="btn btn-secondary" id="btn-logout" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i data-lucide="log-out"></i>
+                    <span>Cerrar Sesión</span>
+                </button>
             </div>
         </aside>
 

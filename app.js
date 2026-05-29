@@ -42,15 +42,12 @@ const API_BASE_URL = isLocalFile
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function initApp() {
     // Load expenses and settings parameters (handles server mode or local fallback)
     await loadExpenses();
     
     // Populate filter and form dropdown options dynamically
     populateDropdowns();
-    
-    // Initialize Theme (Light / Dark)
-    initTheme();
     
     // Populate header date
     initHeaderDate();
@@ -69,7 +66,109 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     // Render Lucide Icons
     lucide.createIcons();
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    // Initialize Theme (Light / Dark) on start
+    initTheme();
+    
+    const token = localStorage.getItem("auth_token");
+    const loginSection = document.getElementById("login-section");
+    const dashboardSection = document.getElementById("dashboard-section");
+
+    if (token) {
+        loginSection.classList.add("hidden");
+        dashboardSection.classList.remove("hidden");
+        await initApp();
+    } else {
+        loginSection.classList.remove("hidden");
+        dashboardSection.classList.add("hidden");
+        lucide.createIcons();
+    }
+
+    setupLoginHandler();
 });
+
+function setupLoginHandler() {
+    const loginForm = document.getElementById("login-form");
+    if (!loginForm) return;
+
+    loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        const username = document.getElementById("login-username").value.trim();
+        const password = document.getElementById("login-password").value;
+        
+        // --- REAL JWT BACKEND LOGIN (UNCOMMENT WHEN BACKEND DEPLOYED) ---
+        /*
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "Credenciales inválidas.");
+            }
+            const data = await response.json();
+            localStorage.setItem("auth_token", data.token);
+            localStorage.setItem("user_role", data.user.role);
+            localStorage.setItem("user_branch", data.user.branch || "");
+            
+            document.getElementById("login-section").classList.add("hidden");
+            document.getElementById("dashboard-section").classList.remove("hidden");
+            await initApp();
+            showToast("¡Inicio de sesión exitoso!", "success");
+        } catch (error) {
+            showToast(error.message, "danger");
+        }
+        return;
+        */
+
+        // --- MOCK SIMULATED LOGIN FOR TESTING ---
+        if (username === "admin" && password === "admin123") {
+            localStorage.setItem("auth_token", "mock_token_admin_123456789");
+            localStorage.setItem("user_role", "ADMIN");
+            
+            document.getElementById("login-section").classList.add("hidden");
+            document.getElementById("dashboard-section").classList.remove("hidden");
+            
+            await initApp();
+            showToast("¡Inicio de sesión exitoso (Simulado)!", "success");
+        } else if (username === "sede_norte" && password === "sede123") {
+            localStorage.setItem("auth_token", "mock_token_sede_norte_123456789");
+            localStorage.setItem("user_role", "SEDE");
+            localStorage.setItem("user_branch", "Sede Norte");
+            
+            document.getElementById("login-section").classList.add("hidden");
+            document.getElementById("dashboard-section").classList.remove("hidden");
+            
+            await initApp();
+            showToast("¡Inicio de sesión exitoso (Simulado)!", "success");
+        } else {
+            showToast("Credenciales inválidas. Usa admin/admin123 o sede_norte/sede123", "danger");
+        }
+    });
+
+    const logoutBtn = document.getElementById("btn-logout");
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", () => {
+            logout();
+        });
+    }
+}
+
+function logout() {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("user_role");
+    localStorage.removeItem("user_branch");
+    showToast("Sesión cerrada.", "info");
+    
+    setTimeout(() => {
+        window.location.reload();
+    }, 800);
+}
 
 // Load expenses data (Dual-Mode: LocalStorage fallback vs API Server)
 async function loadExpenses() {
