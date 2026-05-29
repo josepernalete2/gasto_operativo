@@ -28,11 +28,16 @@ let statusChartInstance = null;
 // 1. Check if running directly from local filesystem (file://)
 const isLocalFile = window.location.protocol === 'file:';
 
-// 2. Define API Base URL dynamically. If running on another port (like Live Server 5500), 
+// 2. Define API Base URL dynamically. If running on another port (like Live Server 5500) locally, 
 // route database API requests to the Express server on port 3000.
+// If running in production (hosted on a server), route requests relatively to the hosting origin.
+const isLocalhost = window.location.hostname === 'localhost' || 
+                    window.location.hostname === '127.0.0.1' || 
+                    window.location.hostname === '[::1]';
+
 const API_BASE_URL = isLocalFile 
     ? '' 
-    : (window.location.port === '3000' ? '' : 'http://localhost:3000');
+    : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : '');
 
 // ============================================================================
 // INITIALIZATION
