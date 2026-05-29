@@ -26,7 +26,15 @@ let statusChartInstance = null;
 
 // Dual Mode Indicators:
 // 1. Check if running directly from local filesystem (file://)
-const isLocalFile = window.location.protocol === 'file:';
+Object.defineProperty(window, 'isLocalFile', {
+    get: function() {
+        const isLocalFileReal = window.location.protocol === 'file:';
+        const token = localStorage.getItem("auth_token");
+        const hasMockToken = token && token !== "undefined" && token !== "null" && token.startsWith("mock_token_");
+        return isLocalFileReal || hasMockToken;
+    },
+    configurable: true
+});
 
 // 2. Define API Base URL dynamically. If running on another port (like Live Server 5500) locally, 
 // route database API requests to the Express server on port 3000.
@@ -45,6 +53,23 @@ function getAuthHeaders() {
         "Content-Type": "application/json",
         "Authorization": token ? `Bearer ${token}` : ""
     };
+}
+
+// Helper to perform fetch and validate JSON response content-type
+async function safeFetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get("content-type");
+    const isJson = contentType && contentType.includes("application/json");
+    
+    if (!isJson) {
+        throw new Error("El servidor no devolvió una respuesta JSON válida. Asegúrate de que el backend esté activo y configurado.");
+    }
+    
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || `Error del servidor (Código ${response.status})`);
+    }
+    return data;
 }
 
 // ============================================================================
@@ -98,11 +123,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const loginSection = document.getElementById("login-section");
     const dashboardSection = document.getElementById("dashboard-section");
 
-    if (token) {
+    if (token && token !== "undefined" && token !== "null" && token.trim() !== "") {
         loginSection.classList.add("hidden");
         dashboardSection.classList.remove("hidden");
         await initApp();
     } else {
+        localStorage.removeItem("auth_token");
         loginSection.classList.remove("hidden");
         dashboardSection.classList.add("hidden");
         lucide.createIcons();
@@ -124,16 +150,11 @@ function setupLoginHandler() {
         // --- REAL JWT BACKEND LOGIN (UNCOMMENT WHEN BACKEND DEPLOYED) ---
         /*
         try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            const data = await safeFetchJson(`${API_BASE_URL}/api/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username, password })
             });
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "Credenciales inválidas.");
-            }
-            const data = await response.json();
             localStorage.setItem("auth_token", data.token);
             localStorage.setItem("user_role", data.user.role);
             localStorage.setItem("user_branch", data.user.branch || "");
@@ -239,11 +260,9 @@ async function loadExpenses() {
     } else {
         // --- SERVER DATABASE MODE ---
         try {
-            const response = await fetch(`${API_BASE_URL}/api/data`, {
+            const data = await safeFetchJson(`${API_BASE_URL}/api/data`, {
                 headers: getAuthHeaders()
             });
-            if (!response.ok) throw new Error("Error cargando datos del servidor.");
-            const data = await response.json();
             
             expenses = data.expenses || [];
             BRANCHES = data.branches || [];
@@ -1320,18 +1339,12 @@ function initSettingsModal() {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+            const data = await safeFetchJson(`${API_BASE_URL}/api/auth/profile`, {
                 method: 'PUT',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({ username, password })
             });
 
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo actualizar el perfil.");
-            }
-
-            const data = await response.json();
             localStorage.setItem("auth_token", data.token);
             localStorage.setItem("user_username", data.user.username);
             
@@ -1357,16 +1370,11 @@ function initSettingsModal() {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/users`, {
+            await safeFetchJson(`${API_BASE_URL}/api/settings/users`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({ username, password, role: "SEDE", branch })
             });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo crear el usuario.");
-            }
 
             showToast(`Usuario "${username}" creado exitosamente para la sede "${branch}".`, "success");
             createUserForm.reset();
@@ -1424,11 +1432,9 @@ async function loadAndRenderUsers() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/settings/users`, {
+        const users = await safeFetchJson(`${API_BASE_URL}/api/settings/users`, {
             headers: getAuthHeaders()
         });
-        if (!response.ok) throw new Error("No se pudo cargar la lista de usuarios.");
-        const users = await response.json();
 
         userList.innerHTML = "";
         const currentUser = localStorage.getItem("user_username");
@@ -1469,15 +1475,10 @@ window.deleteUser = async function(id, username) {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/users/${id}`, {
+            await safeFetchJson(`${API_BASE_URL}/api/settings/users/${id}`, {
                 method: 'DELETE',
                 headers: getAuthHeaders()
             });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo eliminar el usuario.");
-            }
 
             showToast(`Usuario "${username}" eliminado correctamente.`, "info");
             loadAndRenderUsers();

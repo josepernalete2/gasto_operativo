@@ -760,7 +760,12 @@ app.delete('/api/settings/categories/:name', authenticateJWT, requireAdmin, asyn
     }
 });
 
-// Serve index.html as fallback for SPA routing if needed
+// Fallback for API routes (returns JSON)
+app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: "Ruta de API no encontrada." });
+});
+
+// Serve index.html as fallback for SPA routing if needed (non-api routes)
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
