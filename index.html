@@ -462,6 +462,14 @@
                     <i data-lucide="tag"></i>
                     <span>Categorías</span>
                 </button>
+                <button class="tab-btn" id="tab-my-account">
+                    <i data-lucide="user"></i>
+                    <span>Mi Cuenta</span>
+                </button>
+                <button class="tab-btn" id="tab-users">
+                    <i data-lucide="users-2"></i>
+                    <span>Usuarios</span>
+                </button>
             </div>
             
             <!-- Content Tab: Branches -->
@@ -497,6 +505,61 @@
                     <ul class="settings-list" id="settings-categories-list">
                         <!-- Generado dinámicamente -->
                     </ul>
+                </div>
+            </div>
+
+            <!-- Content Tab: My Account -->
+            <div class="tab-content hidden" id="content-my-account">
+                <form id="my-account-form" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+                    <div class="form-group">
+                        <label for="account-username" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Usuario Actual</label>
+                        <input type="text" id="account-username" placeholder="Cambiar usuario" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group">
+                        <label for="account-password" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                        <input type="password" id="account-password" placeholder="Ingresa nueva contraseña" style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="align-self: flex-end;">
+                        <i data-lucide="save"></i>
+                        <span>Actualizar Perfil</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Content Tab: Users (Admin only) -->
+            <div class="tab-content hidden" id="content-users">
+                <form id="create-user-form" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 24px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="form-group">
+                            <label for="new-user-username" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Usuario</label>
+                            <input type="text" id="new-user-username" placeholder="Usuario de la sede" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                        </div>
+                        <div class="form-group">
+                            <label for="new-user-password" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Contraseña</label>
+                            <input type="password" id="new-user-password" placeholder="Contraseña de la sede" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: flex-end;">
+                        <div class="form-group">
+                            <label for="new-user-branch" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Asignar Sede</label>
+                            <select id="new-user-branch" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                                <option value="" disabled selected>Seleccione sede...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="height: 42px;">
+                            <i data-lucide="user-plus"></i>
+                            <span>Crear Usuario Sede</span>
+                        </button>
+                    </div>
+                </form>
+                
+                <div style="margin-top: 16px;">
+                    <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);">Usuarios Registrados</h3>
+                    <div class="settings-list-wrapper" style="max-height: 200px;">
+                        <ul class="settings-list" id="settings-users-list">
+                            <!-- Generado dinámicamente -->
+                        </ul>
+                    </div>
                 </div>
             </div>
             

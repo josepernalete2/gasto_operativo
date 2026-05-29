@@ -225,6 +225,97 @@ app.post('/api/settings/users', authenticateJWT, requireAdmin, async (req, res) 
     }
 });
 
+// 4. Update current user profile (username / password)
+app.put('/api/auth/profile', authenticateJWT, async (req, res) => {
+    const { username, password } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const updateData = {};
+        if (username && username.trim() !== "") {
+            const trimmedUsername = username.trim();
+            if (trimmedUsername !== req.user.username) {
+                const existing = await prisma.user.findUnique({ where: { username: trimmedUsername } });
+                if (existing) {
+                    return res.status(400).json({ error: "El nombre de usuario ya está en uso." });
+                }
+            }
+            updateData.username = trimmedUsername;
+        }
+
+        if (password && password.trim() !== "") {
+            updateData.password = await bcrypt.hash(password, 10);
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: "No se enviaron datos para actualizar." });
+        }
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: updateData
+        });
+
+        const token = jwt.sign(
+            { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role, branch: updatedUser.branch },
+            JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        res.json({
+            message: "Perfil actualizado correctamente.",
+            token,
+            user: {
+                username: updatedUser.username,
+                role: updatedUser.role,
+                branch: updatedUser.branch
+            }
+        });
+    } catch (error) {
+        console.error("Profile update error:", error);
+        res.status(500).json({ error: "Error al actualizar el perfil." });
+    }
+});
+
+// 5. Get all users list (Admin only)
+app.get('/api/settings/users', authenticateJWT, requireAdmin, async (req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: {
+                id: true,
+                username: true,
+                role: true,
+                branch: true,
+                createdAt: true
+            }
+        });
+        res.json(users);
+    } catch (error) {
+        console.error("Error listing users:", error);
+        res.status(500).json({ error: "Error al listar los usuarios." });
+    }
+});
+
+// 6. Delete user account (Admin only)
+app.delete('/api/settings/users/:id', authenticateJWT, requireAdmin, async (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuario inválido." });
+    }
+
+    if (userId === req.user.id) {
+        return res.status(400).json({ error: "No puedes eliminar tu propia cuenta de administrador." });
+    }
+
+    try {
+        await prisma.user.delete({ where: { id: userId } });
+        res.json({ message: "Usuario eliminado correctamente." });
+    } catch (error) {
+        console.error("Error deleting user:", error);
+        res.status(500).json({ error: "Error al eliminar el usuario." });
+    }
+});
+
 // ============================================================================
 // EXCHANGE RATE ENDPOINTS
 // ============================================================================

@@ -38,11 +38,33 @@ const isLocalhost = window.location.hostname === 'localhost' ||
 const API_BASE_URL = isLocalFile 
     ? '' 
     : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : 'https://gasto-operativo.onrender.com');
+// Helper to get authenticated headers
+function getAuthHeaders() {
+    const token = localStorage.getItem("auth_token");
+    return {
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : ""
+    };
+}
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
 
 async function initApp() {
+    // Dynamically populate user profile in sidebar
+    const storedUsername = localStorage.getItem("user_username") || "Administrador";
+    const storedRole = localStorage.getItem("user_role") || "ADMIN";
+    const storedBranch = localStorage.getItem("user_branch") || "";
+    
+    const roleText = storedRole === "ADMIN" ? "Administrador" : `Sede: ${storedBranch}`;
+    const sidebarUser = document.getElementById("sidebar-user-name");
+    const sidebarRole = document.getElementById("sidebar-user-role");
+    const sidebarAvatar = document.getElementById("sidebar-user-avatar");
+    
+    if (sidebarUser) sidebarUser.textContent = storedUsername;
+    if (sidebarRole) sidebarRole.textContent = roleText;
+    if (sidebarAvatar) sidebarAvatar.textContent = storedUsername.substring(0, 2).toUpperCase();
     // Load expenses and settings parameters (handles server mode or local fallback)
     await loadExpenses();
     
@@ -115,6 +137,7 @@ function setupLoginHandler() {
             localStorage.setItem("auth_token", data.token);
             localStorage.setItem("user_role", data.user.role);
             localStorage.setItem("user_branch", data.user.branch || "");
+            localStorage.setItem("user_username", data.user.username);
             
             document.getElementById("login-section").classList.add("hidden");
             document.getElementById("dashboard-section").classList.remove("hidden");
@@ -216,7 +239,9 @@ async function loadExpenses() {
     } else {
         // --- SERVER DATABASE MODE ---
         try {
-            const response = await fetch(`${API_BASE_URL}/api/data`);
+            const response = await fetch(`${API_BASE_URL}/api/data`, {
+                headers: getAuthHeaders()
+            });
             if (!response.ok) throw new Error("Error cargando datos del servidor.");
             const data = await response.json();
             
@@ -880,7 +905,7 @@ window.saveInlineEdit = async function(id) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({
                     date: dateVal,
                     branch: branchVal,
@@ -925,7 +950,8 @@ window.deleteExpense = async function(id) {
             // --- SERVER REST API ---
             try {
                 const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
                 });
                 
                 if (!response.ok) {
@@ -1057,7 +1083,7 @@ function setupEventListeners() {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/expenses`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({
                         date: dateInput.value,
                         branch: branchInput.value,
@@ -1135,7 +1161,25 @@ function initSettingsModal() {
     const openSettings = () => {
         editingSettingId = null;
         renderSettingsLists();
-        switchSettingsTab('branches');
+        
+        // RBAC Tab filtering
+        const role = localStorage.getItem("user_role");
+        const tabBranches = document.getElementById("tab-branches");
+        const tabCategories = document.getElementById("tab-categories");
+        const tabUsers = document.getElementById("tab-users");
+        
+        if (role === "SEDE") {
+            if (tabBranches) tabBranches.classList.add("hidden");
+            if (tabCategories) tabCategories.classList.add("hidden");
+            if (tabUsers) tabUsers.classList.add("hidden");
+            switchSettingsTab('my-account');
+        } else {
+            if (tabBranches) tabBranches.classList.remove("hidden");
+            if (tabCategories) tabCategories.classList.remove("hidden");
+            if (tabUsers) tabUsers.classList.remove("hidden");
+            switchSettingsTab('branches');
+        }
+        
         settingsOverlay.classList.remove("hidden");
     };
     
@@ -1159,9 +1203,13 @@ function initSettingsModal() {
     
     document.getElementById("tab-branches").addEventListener("click", () => switchSettingsTab('branches'));
     document.getElementById("tab-categories").addEventListener("click", () => switchSettingsTab('categories'));
+    document.getElementById("tab-my-account").addEventListener("click", () => switchSettingsTab('my-account'));
+    document.getElementById("tab-users").addEventListener("click", () => switchSettingsTab('users'));
     
     const addBranchForm = document.getElementById("add-branch-form");
     const addCategoryForm = document.getElementById("add-category-form");
+    const myAccountForm = document.getElementById("my-account-form");
+    const createUserForm = document.getElementById("create-user-form");
     
     // Add Branch (Dual Mode)
     addBranchForm.addEventListener("submit", async (e) => {
@@ -1172,27 +1220,23 @@ function initSettingsModal() {
         if (!name) return;
         
         if (isLocalFile) {
-            // --- LOCAL FALLBACK ---
             if (BRANCHES.includes(name)) {
                 showToast("Error: La sede ya está registrada.", "danger");
                 return;
             }
-            
             BRANCHES.push(name);
             localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
             input.value = "";
-            
             populateDropdowns();
             updateChartsStructure();
             renderDashboard();
             renderSettingsLists();
             showToast(`Sede "${name}" agregada correctamente en LocalStorage.`, "success");
         } else {
-            // --- SERVER REST API ---
             try {
                 const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ name })
                 });
                 
@@ -1203,7 +1247,6 @@ function initSettingsModal() {
                 
                 BRANCHES = await response.json();
                 input.value = "";
-                
                 populateDropdowns();
                 updateChartsStructure();
                 renderDashboard();
@@ -1224,27 +1267,23 @@ function initSettingsModal() {
         if (!name) return;
         
         if (isLocalFile) {
-            // --- LOCAL FALLBACK ---
             if (CATEGORIES.includes(name)) {
                 showToast("Error: La categoría ya está registrada.", "danger");
                 return;
             }
-            
             CATEGORIES.push(name);
             localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
             input.value = "";
-            
             populateDropdowns();
             updateChartsStructure();
             renderDashboard();
             renderSettingsLists();
             showToast(`Categoría "${name}" agregada en LocalStorage.`, "success");
         } else {
-            // --- SERVER REST API ---
             try {
                 const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ name })
                 });
                 
@@ -1255,7 +1294,6 @@ function initSettingsModal() {
                 
                 CATEGORIES = await response.json();
                 input.value = "";
-                
                 populateDropdowns();
                 updateChartsStructure();
                 renderDashboard();
@@ -1266,24 +1304,186 @@ function initSettingsModal() {
             }
         }
     });
+
+    // Update Profile Form (My Account)
+    myAccountForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = document.getElementById("account-username").value.trim();
+        const password = document.getElementById("account-password").value;
+
+        if (isLocalFile) {
+            localStorage.setItem("user_username", username);
+            showToast("Perfil actualizado localmente (Simulado).", "success");
+            document.getElementById("account-password").value = "";
+            initApp();
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ username, password })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo actualizar el perfil.");
+            }
+
+            const data = await response.json();
+            localStorage.setItem("auth_token", data.token);
+            localStorage.setItem("user_username", data.user.username);
+            
+            showToast("Perfil actualizado exitosamente.", "success");
+            document.getElementById("account-password").value = "";
+            initApp();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
+    });
+
+    // Create User Form (Admin only)
+    createUserForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = document.getElementById("new-user-username").value.trim();
+        const password = document.getElementById("new-user-password").value;
+        const branch = document.getElementById("new-user-branch").value;
+
+        if (isLocalFile) {
+            showToast("Simulación: Usuario de sede creado localmente.", "success");
+            createUserForm.reset();
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/users`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ username, password, role: "SEDE", branch })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo crear el usuario.");
+            }
+
+            showToast(`Usuario "${username}" creado exitosamente para la sede "${branch}".`, "success");
+            createUserForm.reset();
+            loadAndRenderUsers();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
+    });
 }
 
 function switchSettingsTab(tabName) {
-    const tabBranches = document.getElementById("tab-branches");
-    const tabCategories = document.getElementById("tab-categories");
-    const contentBranches = document.getElementById("content-branches");
-    const contentCategories = document.getElementById("content-categories");
-    
-    if (tabName === 'branches') {
-        tabBranches.classList.add("active");
-        tabCategories.classList.remove("active");
-        contentBranches.classList.remove("hidden");
-        contentCategories.classList.add("hidden");
-    } else {
-        tabBranches.classList.remove("active");
-        tabCategories.classList.add("active");
-        contentBranches.classList.add("hidden");
-        contentCategories.classList.remove("hidden");
+    const tabs = ['branches', 'categories', 'my-account', 'users'];
+    tabs.forEach(t => {
+        const tabBtn = document.getElementById(`tab-${t}`);
+        const tabContent = document.getElementById(`content-${t}`);
+        if (t === tabName) {
+            if (tabBtn) tabBtn.classList.add("active");
+            if (tabContent) tabContent.classList.remove("hidden");
+        } else {
+            if (tabBtn) tabBtn.classList.remove("active");
+            if (tabContent) tabContent.classList.add("hidden");
+        }
+    });
+
+    if (tabName === 'my-account') {
+        const currentUsername = localStorage.getItem("user_username") || "admin";
+        document.getElementById("account-username").value = currentUsername;
+    } else if (tabName === 'users') {
+        const userBranchSelect = document.getElementById("new-user-branch");
+        if (userBranchSelect) {
+            userBranchSelect.innerHTML = '<option value="" disabled selected>Seleccione sede...</option>' +
+                BRANCHES.map(b => `<option value="${b}">${b}</option>`).join("");
+        }
+        loadAndRenderUsers();
+    }
+}
+
+async function loadAndRenderUsers() {
+    const userList = document.getElementById("settings-users-list");
+    if (!userList) return;
+    userList.innerHTML = "<li style='padding: 8px 12px; color: var(--text-secondary);'>Cargando usuarios...</li>";
+
+    if (isLocalFile) {
+        userList.innerHTML = `
+            <li class="settings-item">
+                <span class="settings-item-text">admin (ADMIN)</span>
+                <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">(Tú)</span>
+            </li>
+            <li class="settings-item">
+                <span class="settings-item-text">sede_norte (SEDE - Sede Norte)</span>
+                <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Simulado</span>
+            </li>
+        `;
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/settings/users`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) throw new Error("No se pudo cargar la lista de usuarios.");
+        const users = await response.json();
+
+        userList.innerHTML = "";
+        const currentUser = localStorage.getItem("user_username");
+
+        users.forEach(user => {
+            const li = document.createElement("li");
+            li.className = "settings-item";
+            
+            const isSelf = user.username === currentUser;
+            const branchText = user.branch ? ` - ${user.branch}` : "";
+            
+            li.innerHTML = `
+                <span class="settings-item-text" style="font-weight: 500;">
+                    ${user.username} <span style="font-size: 0.8rem; color: var(--text-secondary);">(${user.role}${branchText})</span>
+                </span>
+                <div class="settings-item-actions">
+                    ${isSelf ? '<span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">(Tú)</span>' : `
+                        <button class="btn-icon delete" onclick="deleteUser(${user.id}, '${user.username}')" title="Eliminar usuario">
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    `}
+                </div>
+            `;
+            userList.appendChild(li);
+        });
+
+        lucide.createIcons();
+    } catch (error) {
+        userList.innerHTML = `<li style='padding: 8px 12px; color: var(--danger);'>Error: ${error.message}</li>`;
+    }
+}
+
+window.deleteUser = async function(id, username) {
+    if (confirm(`¿Estás seguro de que deseas eliminar la cuenta de "${username}"?`)) {
+        if (isLocalFile) {
+            showToast("Acción de simulación: usuario eliminado localmente.", "info");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/users/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar el usuario.");
+            }
+
+            showToast(`Usuario "${username}" eliminado correctamente.`, "info");
+            loadAndRenderUsers();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
     }
 }
 
@@ -1409,7 +1609,7 @@ window.saveSettingsBranch = async function(index) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ oldName, newName })
             });
             
@@ -1473,7 +1673,7 @@ window.saveSettingsCategory = async function(index) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ oldName, newName })
             });
             
@@ -1526,7 +1726,8 @@ window.deleteSettingsBranch = async function(index) {
         // --- SERVER REST API ---
         try {
             const response = await fetch(`${API_BASE_URL}/api/settings/branches/${encodeURIComponent(branchName)}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
             
             if (!response.ok) {
@@ -1575,7 +1776,8 @@ window.deleteSettingsCategory = async function(index) {
         // --- SERVER REST API ---
         try {
             const response = await fetch(`${API_BASE_URL}/api/settings/categories/${encodeURIComponent(catName)}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
             
             if (!response.ok) {
