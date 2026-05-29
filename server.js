@@ -1,11 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
 const path = require('path');
+const { PrismaClient } = require('@prisma/client');
 
+const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'database.json');
 
 // Middleware
 app.use(cors());
@@ -26,32 +27,35 @@ const DEFAULT_EXPENSES = [
     { id: "EXP-108", date: "2026-05-25", branch: "Sede Este", category: "Servicios", description: "Servicio de internet simétrico y telefonía VoIP", amount: 180.00, status: "Pagado" }
 ];
 
-// Database Helpers
-function readDB() {
+// Seeding function
+async function seedIfNeeded() {
     try {
-        if (fs.existsSync(DB_FILE)) {
-            const fileData = fs.readFileSync(DB_FILE, 'utf-8');
-            return JSON.parse(fileData);
-        } else {
-            const initialData = {
-                branches: DEFAULT_BRANCHES,
-                categories: DEFAULT_CATEGORIES,
-                expenses: DEFAULT_EXPENSES
-            };
-            writeDB(initialData);
-            return initialData;
+        const branchCount = await prisma.branch.count();
+        const categoryCount = await prisma.category.count();
+        const expenseCount = await prisma.expense.count();
+
+        if (branchCount === 0) {
+            console.log("Seeding default branches...");
+            await prisma.branch.createMany({
+                data: DEFAULT_BRANCHES.map(name => ({ name }))
+            });
+        }
+
+        if (categoryCount === 0) {
+            console.log("Seeding default categories...");
+            await prisma.category.createMany({
+                data: DEFAULT_CATEGORIES.map(name => ({ name }))
+            });
+        }
+
+        if (expenseCount === 0) {
+            console.log("Seeding default expenses...");
+            await prisma.expense.createMany({
+                data: DEFAULT_EXPENSES
+            });
         }
     } catch (error) {
-        console.error("Error reading database:", error);
-        return { branches: [], categories: [], expenses: [] };
-    }
-}
-
-function writeDB(data) {
-    try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (error) {
-        console.error("Error writing to database:", error);
+        console.error("Error during database seeding:", error);
     }
 }
 
@@ -60,14 +64,25 @@ function writeDB(data) {
 // ============================================================================
 
 // 1. Get all database data
-app.get('/api/data', (req, res) => {
-    const data = readDB();
-    res.json(data);
+app.get('/api/data', async (req, res) => {
+    try {
+        const expenses = await prisma.expense.findMany();
+        const dbBranches = await prisma.branch.findMany();
+        const dbCategories = await prisma.category.findMany();
+
+        res.json({
+            expenses: expenses,
+            branches: dbBranches.map(b => b.name),
+            categories: dbCategories.map(c => c.name)
+        });
+    } catch (error) {
+        console.error("Error fetching data from database:", error);
+        res.status(500).json({ error: "Error al obtener datos de la base de datos." });
+    }
 });
 
 // 2. Add dynamic expense
-app.post('/api/expenses', (req, res) => {
-    const data = readDB();
+app.post('/api/expenses', async (req, res) => {
     const { date, branch, category, description, amount, status } = req.body;
     
     // Server-side validation
@@ -75,77 +90,88 @@ app.post('/api/expenses', (req, res) => {
         return res.status(400).json({ error: "Datos de gasto incompletos o inválidos." });
     }
     
-    // Generate autoincremental EXP-XXX ID
-    const nextIdNumber = data.expenses.reduce((max, curr) => {
-        const num = parseInt(curr.id.split("-")[1]);
-        return num > max ? num : max;
-    }, 100) + 1;
-    const newId = `EXP-${nextIdNumber}`;
-    
-    const newExpense = {
-        id: newId,
-        date,
-        branch,
-        category,
-        description,
-        amount: parseFloat(amount),
-        status
-    };
-    
-    data.expenses.push(newExpense);
-    writeDB(data);
-    
-    res.status(201).json(newExpense);
+    try {
+        const allExpenses = await prisma.expense.findMany({ select: { id: true } });
+        const nextIdNumber = allExpenses.reduce((max, curr) => {
+            const parts = curr.id.split("-");
+            if (parts.length === 2) {
+                const num = parseInt(parts[1]);
+                if (!isNaN(num)) return num > max ? num : max;
+            }
+            return max;
+        }, 100) + 1;
+        const newId = `EXP-${nextIdNumber}`;
+        
+        const newExpense = await prisma.expense.create({
+            data: {
+                id: newId,
+                date,
+                branch,
+                category,
+                description,
+                amount: parseFloat(amount),
+                status
+            }
+        });
+        
+        res.status(201).json(newExpense);
+    } catch (error) {
+        console.error("Error creating expense:", error);
+        res.status(500).json({ error: "Error interno del servidor al registrar el gasto." });
+    }
 });
 
 // 3. Edit dynamic expense
-app.put('/api/expenses/:id', (req, res) => {
-    const data = readDB();
+app.put('/api/expenses/:id', async (req, res) => {
     const expenseId = req.params.id;
     const { date, branch, category, description, amount, status } = req.body;
-    
-    const index = data.expenses.findIndex(e => e.id === expenseId);
-    if (index === -1) {
-        return res.status(404).json({ error: "Gasto no encontrado." });
-    }
     
     if (!date || !branch || !category || !description || isNaN(amount) || amount <= 0 || !status) {
         return res.status(400).json({ error: "Datos de edición incompletos o inválidos." });
     }
     
-    data.expenses[index] = {
-        id: expenseId,
-        date,
-        branch,
-        category,
-        description,
-        amount: parseFloat(amount),
-        status
-    };
-    
-    writeDB(data);
-    res.json(data.expenses[index]);
+    try {
+        const updatedExpense = await prisma.expense.update({
+            where: { id: expenseId },
+            data: {
+                date,
+                branch,
+                category,
+                description,
+                amount: parseFloat(amount),
+                status
+            }
+        });
+        res.json(updatedExpense);
+    } catch (error) {
+        console.error("Error updating expense:", error);
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: "Gasto no encontrado." });
+        }
+        res.status(500).json({ error: "Error interno del servidor al actualizar el gasto." });
+    }
 });
 
 // 4. Delete expense
-app.delete('/api/expenses/:id', (req, res) => {
-    const data = readDB();
+app.delete('/api/expenses/:id', async (req, res) => {
     const expenseId = req.params.id;
     
-    const index = data.expenses.findIndex(e => e.id === expenseId);
-    if (index === -1) {
-        return res.status(404).json({ error: "Gasto no encontrado." });
+    try {
+        await prisma.expense.delete({
+            where: { id: expenseId }
+        });
+        res.json({ success: true, message: `Gasto ${expenseId} eliminado correctamente.` });
+    } catch (error) {
+        console.error("Error deleting expense:", error);
+        if (error.code === 'P2025') {
+            return res.status(404).json({ error: "Gasto no encontrado." });
+        }
+        res.status(500).json({ error: "Error interno del servidor al eliminar el gasto." });
     }
-    
-    data.expenses.splice(index, 1);
-    writeDB(data);
-    
-    res.json({ success: true, message: `Gasto ${expenseId} eliminado correctamente.` });
 });
 
 // 5. Add Branch
-app.post('/api/settings/branches', (req, res) => {
-    const data = readDB();
+app.post('/api/settings/branches', async (req, res) => {
     const { name } = req.body;
     
     if (!name || name.trim() === "") {
@@ -153,19 +179,29 @@ app.post('/api/settings/branches', (req, res) => {
     }
     
     const trimmedName = name.trim();
-    if (data.branches.includes(trimmedName)) {
-        return res.status(400).json({ error: "La sede ya existe." });
+    
+    try {
+        const existing = await prisma.branch.findUnique({
+            where: { name: trimmedName }
+        });
+        if (existing) {
+            return res.status(400).json({ error: "La sede ya existe." });
+        }
+        
+        await prisma.branch.create({
+            data: { name: trimmedName }
+        });
+        
+        const allBranches = await prisma.branch.findMany();
+        res.status(201).json(allBranches.map(b => b.name));
+    } catch (error) {
+        console.error("Error creating branch:", error);
+        res.status(500).json({ error: "Error interno del servidor al crear la sede." });
     }
-    
-    data.branches.push(trimmedName);
-    writeDB(data);
-    
-    res.status(201).json(data.branches);
 });
 
 // 6. Rename Branch (Cascade rename expenses)
-app.put('/api/settings/branches', (req, res) => {
-    const data = readDB();
+app.put('/api/settings/branches', async (req, res) => {
     const { oldName, newName } = req.body;
     
     if (!oldName || !newName || newName.trim() === "") {
@@ -173,54 +209,74 @@ app.put('/api/settings/branches', (req, res) => {
     }
     
     const trimmedNewName = newName.trim();
-    const index = data.branches.indexOf(oldName);
     
-    if (index === -1) {
-        return res.status(404).json({ error: "Sede de origen no encontrada." });
-    }
-    if (data.branches.includes(trimmedNewName) && oldName !== trimmedNewName) {
-        return res.status(400).json({ error: "El nombre nuevo ya está registrado." });
-    }
-    
-    // Update branch array
-    data.branches[index] = trimmedNewName;
-    
-    // Update in cascade all historical expenses
-    data.expenses.forEach(e => {
-        if (e.branch === oldName) {
-            e.branch = trimmedNewName;
+    try {
+        const oldBranchExists = await prisma.branch.findUnique({ where: { name: oldName } });
+        if (!oldBranchExists) {
+            return res.status(404).json({ error: "Sede de origen no encontrada." });
         }
-    });
-    
-    writeDB(data);
-    res.json({ branches: data.branches, expenses: data.expenses });
+        
+        if (oldName !== trimmedNewName) {
+            const newBranchExists = await prisma.branch.findUnique({ where: { name: trimmedNewName } });
+            if (newBranchExists) {
+                return res.status(400).json({ error: "El nombre nuevo ya está registrado." });
+            }
+            
+            await prisma.$transaction([
+                prisma.branch.create({ data: { name: trimmedNewName } }),
+                prisma.expense.updateMany({
+                    where: { branch: oldName },
+                    data: { branch: trimmedNewName }
+                }),
+                prisma.branch.delete({ where: { name: oldName } })
+            ]);
+        }
+        
+        const allBranches = await prisma.branch.findMany();
+        const allExpenses = await prisma.expense.findMany();
+        
+        res.json({
+            branches: allBranches.map(b => b.name),
+            expenses: allExpenses
+        });
+    } catch (error) {
+        console.error("Error renaming branch:", error);
+        res.status(500).json({ error: "Error interno del servidor al renombrar la sede." });
+    }
 });
 
 // 7. Delete Branch
-app.delete('/api/settings/branches/:name', (req, res) => {
-    const data = readDB();
+app.delete('/api/settings/branches/:name', async (req, res) => {
     const branchName = req.params.name;
     
-    const index = data.branches.indexOf(branchName);
-    if (index === -1) {
-        return res.status(404).json({ error: "Sede no encontrada." });
+    try {
+        const branchExists = await prisma.branch.findUnique({ where: { name: branchName } });
+        if (!branchExists) {
+            return res.status(404).json({ error: "Sede no encontrada." });
+        }
+        
+        // Integrity check: block if there are expenses associated
+        const count = await prisma.expense.count({
+            where: { branch: branchName }
+        });
+        if (count > 0) {
+            return res.status(400).json({ error: `No se puede eliminar la sede porque tiene ${count} gastos asociados.` });
+        }
+        
+        await prisma.branch.delete({
+            where: { name: branchName }
+        });
+        
+        const allBranches = await prisma.branch.findMany();
+        res.json(allBranches.map(b => b.name));
+    } catch (error) {
+        console.error("Error deleting branch:", error);
+        res.status(500).json({ error: "Error interno del servidor al eliminar la sede." });
     }
-    
-    // Integrity check: block if there are expenses associated
-    const count = data.expenses.filter(e => e.branch === branchName).length;
-    if (count > 0) {
-        return res.status(400).json({ error: `No se puede eliminar la sede porque tiene ${count} gastos asociados.` });
-    }
-    
-    data.branches.splice(index, 1);
-    writeDB(data);
-    
-    res.json(data.branches);
 });
 
 // 8. Add Category
-app.post('/api/settings/categories', (req, res) => {
-    const data = readDB();
+app.post('/api/settings/categories', async (req, res) => {
     const { name } = req.body;
     
     if (!name || name.trim() === "") {
@@ -228,19 +284,29 @@ app.post('/api/settings/categories', (req, res) => {
     }
     
     const trimmedName = name.trim();
-    if (data.categories.includes(trimmedName)) {
-        return res.status(400).json({ error: "La categoría ya existe." });
+    
+    try {
+        const existing = await prisma.category.findUnique({
+            where: { name: trimmedName }
+        });
+        if (existing) {
+            return res.status(400).json({ error: "La categoría ya existe." });
+        }
+        
+        await prisma.category.create({
+            data: { name: trimmedName }
+        });
+        
+        const allCategories = await prisma.category.findMany();
+        res.status(201).json(allCategories.map(c => c.name));
+    } catch (error) {
+        console.error("Error creating category:", error);
+        res.status(500).json({ error: "Error interno del servidor al crear la categoría." });
     }
-    
-    data.categories.push(trimmedName);
-    writeDB(data);
-    
-    res.status(201).json(data.categories);
 });
 
 // 9. Rename Category (Cascade rename expenses)
-app.put('/api/settings/categories', (req, res) => {
-    const data = readDB();
+app.put('/api/settings/categories', async (req, res) => {
     const { oldName, newName } = req.body;
     
     if (!oldName || !newName || newName.trim() === "") {
@@ -248,49 +314,70 @@ app.put('/api/settings/categories', (req, res) => {
     }
     
     const trimmedNewName = newName.trim();
-    const index = data.categories.indexOf(oldName);
     
-    if (index === -1) {
-        return res.status(404).json({ error: "Categoría de origen no encontrada." });
-    }
-    if (data.categories.includes(trimmedNewName) && oldName !== trimmedNewName) {
-        return res.status(400).json({ error: "El nombre nuevo ya está registrado." });
-    }
-    
-    // Update category array
-    data.categories[index] = trimmedNewName;
-    
-    // Update in cascade all historical expenses
-    data.expenses.forEach(e => {
-        if (e.category === oldName) {
-            e.category = trimmedNewName;
+    try {
+        const oldCategoryExists = await prisma.category.findUnique({ where: { name: oldName } });
+        if (!oldCategoryExists) {
+            return res.status(404).json({ error: "Categoría de origen no encontrada." });
         }
-    });
-    
-    writeDB(data);
-    res.json({ categories: data.categories, expenses: data.expenses });
+        
+        if (oldName !== trimmedNewName) {
+            const newCategoryExists = await prisma.category.findUnique({ where: { name: trimmedNewName } });
+            if (newCategoryExists) {
+                return res.status(400).json({ error: "El nombre nuevo ya está registrado." });
+            }
+            
+            await prisma.$transaction([
+                prisma.category.create({ data: { name: trimmedNewName } }),
+                prisma.expense.updateMany({
+                    where: { category: oldName },
+                    data: { category: trimmedNewName }
+                }),
+                prisma.category.delete({ where: { name: oldName } })
+            ]);
+        }
+        
+        const allCategories = await prisma.category.findMany();
+        const allExpenses = await prisma.expense.findMany();
+        
+        res.json({
+            categories: allCategories.map(c => c.name),
+            expenses: allExpenses
+        });
+    } catch (error) {
+        console.error("Error renaming category:", error);
+        res.status(500).json({ error: "Error interno del servidor al renombrar la categoría." });
+    }
 });
 
 // 10. Delete Category
-app.delete('/api/settings/categories/:name', (req, res) => {
-    const data = readDB();
+app.delete('/api/settings/categories/:name', async (req, res) => {
     const catName = req.params.name;
     
-    const index = data.categories.indexOf(catName);
-    if (index === -1) {
-        return res.status(404).json({ error: "Categoría no encontrada." });
+    try {
+        const categoryExists = await prisma.category.findUnique({ where: { name: catName } });
+        if (!categoryExists) {
+            return res.status(404).json({ error: "Categoría no encontrada." });
+        }
+        
+        // Integrity check
+        const count = await prisma.expense.count({
+            where: { category: catName }
+        });
+        if (count > 0) {
+            return res.status(400).json({ error: `No se puede eliminar la categoría porque tiene ${count} gastos asociados.` });
+        }
+        
+        await prisma.category.delete({
+            where: { name: catName }
+        });
+        
+        const allCategories = await prisma.category.findMany();
+        res.json(allCategories.map(c => c.name));
+    } catch (error) {
+        console.error("Error deleting category:", error);
+        res.status(500).json({ error: "Error interno del servidor al eliminar la categoría." });
     }
-    
-    // Integrity check
-    const count = data.expenses.filter(e => e.category === catName).length;
-    if (count > 0) {
-        return res.status(400).json({ error: `No se puede eliminar la categoría porque tiene ${count} gastos asociados.` });
-    }
-    
-    data.categories.splice(index, 1);
-    writeDB(data);
-    
-    res.json(data.categories);
 });
 
 // Serve index.html as fallback for SPA routing if needed
@@ -299,6 +386,12 @@ app.get('*', (req, res) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`Servidor de Control de Gastos corriendo en: http://localhost:${PORT}`);
+    try {
+        await seedIfNeeded();
+        console.log("Base de datos verificada e inicializada correctamente.");
+    } catch (error) {
+        console.error("Error al inicializar la base de datos:", error);
+    }
 });
