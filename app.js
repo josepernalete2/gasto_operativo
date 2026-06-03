@@ -39,14 +39,11 @@ const isLocalhost = window.location.hostname === 'localhost' ||
                     window.location.hostname === '127.0.0.1' || 
                     window.location.hostname === '[::1]';
 
-const DEFAULT_API_URL = 'https://gasto-operativo.onrender.com';
-const storedApiUrl = localStorage.getItem("custom_api_url");
-
 const API_BASE_URL = isLocalFile 
     ? '' 
     : (isLocalhost 
         ? (window.location.port === '3000' ? '' : 'http://localhost:3000') 
-        : (storedApiUrl || DEFAULT_API_URL));
+        : 'https://gasto-operativo.onrender.com');
 // Helper to format money values
 function formatCurrencyUsd(value) {
     return new Intl.NumberFormat('en-US', {
