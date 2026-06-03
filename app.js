@@ -41,9 +41,14 @@ const isLocalhost = window.location.hostname === 'localhost' ||
                     window.location.hostname === '127.0.0.1' || 
                     window.location.hostname === '[::1]';
 
+const DEFAULT_API_URL = 'https://gasto-operativo-onrender-com.onrender.com';
+const storedApiUrl = localStorage.getItem("custom_api_url");
+
 const API_BASE_URL = isLocalFile 
     ? '' 
-    : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : 'https://gasto-operativo-onrender-com.onrender.com');
+    : (isLocalhost 
+        ? (window.location.port === '3000' ? '' : 'http://localhost:3000') 
+        : (storedApiUrl || DEFAULT_API_URL));
 // Helper to format money values
 function formatCurrencyUsd(value) {
     return new Intl.NumberFormat('en-US', {
@@ -2435,6 +2440,38 @@ function setupLoginListeners() {
             }
         }
     });
+    
+    // API custom URL config toggling
+    const btnToggleApi = document.getElementById("btn-toggle-api-config");
+    const apiConfigContainer = document.getElementById("api-config-container");
+    const customApiInput = document.getElementById("custom-api-url-input");
+    const btnSaveApi = document.getElementById("btn-save-api-url");
+    
+    if (btnToggleApi && apiConfigContainer) {
+        btnToggleApi.addEventListener("click", () => {
+            apiConfigContainer.classList.toggle("hidden");
+        });
+    }
+    
+    if (customApiInput) {
+        customApiInput.value = localStorage.getItem("custom_api_url") || DEFAULT_API_URL;
+    }
+    
+    if (btnSaveApi && customApiInput) {
+        btnSaveApi.addEventListener("click", () => {
+            const urlVal = customApiInput.value.trim();
+            if (urlVal === "") {
+                localStorage.removeItem("custom_api_url");
+                showToast("URL restablecida al valor por defecto.", "info");
+            } else {
+                localStorage.setItem("custom_api_url", urlVal);
+                showToast("URL del servidor actualizada. Recargando...", "success");
+            }
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        });
+    }
     
     const logoutBtn = document.getElementById("btn-logout");
     if (logoutBtn) {

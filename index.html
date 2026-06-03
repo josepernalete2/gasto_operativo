@@ -48,6 +48,21 @@
                     <span>Acceder al Sistema</span>
                 </button>
             </form>
+
+            <!-- Configuración de API opcional -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 16px; margin-top: 8px;">
+                <button type="button" id="btn-toggle-api-config" style="background: none; border: none; color: var(--text-secondary); font-size: 0.75rem; display: flex; align-items: center; gap: 4px; cursor: pointer; margin: 0 auto;">
+                    <i data-lucide="settings" style="width: 12px; height: 12px;"></i>
+                    <span>Configurar URL del Servidor (Render)</span>
+                </button>
+                <div id="api-config-container" class="hidden" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                    <label for="custom-api-url-input" style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary);">URL del Backend</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="url" id="custom-api-url-input" placeholder="https://mi-servidor.onrender.com" style="flex: 1; padding: 6px 10px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; min-width: 0;">
+                        <button type="button" id="btn-save-api-url" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">Guardar</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
