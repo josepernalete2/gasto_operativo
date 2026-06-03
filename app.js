@@ -43,8 +43,7 @@ const isLocalhost = window.location.hostname === 'localhost' ||
 
 const API_BASE_URL = isLocalFile 
     ? '' 
-    : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : 'https://gasto-operativo.onrender.com');
-
+    : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : 'https://gasto-operativo-onrender-com.onrender.com');
 // Helper to format money values
 function formatCurrencyUsd(value) {
     return new Intl.NumberFormat('en-US', {
