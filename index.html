@@ -21,50 +21,7 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- Login Overlay -->
-    <div class="login-overlay" id="login-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(88, 28, 135, 0.95)); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 9999;">
-        <div class="login-card" style="width: 100%; max-width: 420px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: var(--shadow-xl); padding: 32px; display: flex; flex-direction: column; gap: 24px;">
-            <div style="text-align: center;">
-                <div style="width: 48px; height: 48px; background-color: var(--primary); border-radius: 12px; color: white; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 1.5rem;">
-                    <i data-lucide="lock"></i>
-                </div>
-                <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin: 0 0 8px 0;">Iniciar Sesión</h2>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">Ingrese sus credenciales para acceder a GastosCorp</p>
-            </div>
-            
-            <form id="login-form" style="display: flex; flex-direction: column; gap: 16px;">
-                <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-                    <label for="login-username" style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary);">Usuario</label>
-                    <input type="text" id="login-username" placeholder="admin" required style="width: 100%; padding: 10px 14px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.9rem;">
-                </div>
-                
-                <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
-                    <label for="login-password" style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary);">Contraseña</label>
-                    <input type="password" id="login-password" placeholder="••••••••" required style="width: 100%; padding: 10px 14px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.9rem;">
-                </div>
-                
-                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; font-size: 0.95rem; margin-top: 8px;">
-                    <i data-lucide="log-in"></i>
-                    <span>Acceder al Sistema</span>
-                </button>
-            </form>
 
-            <!-- Configuración de API opcional -->
-            <div style="border-top: 1px solid var(--border-color); padding-top: 16px; margin-top: 8px;">
-                <button type="button" id="btn-toggle-api-config" style="background: none; border: none; color: var(--text-secondary); font-size: 0.75rem; display: flex; align-items: center; gap: 4px; cursor: pointer; margin: 0 auto;">
-                    <i data-lucide="settings" style="width: 12px; height: 12px;"></i>
-                    <span>Configurar URL del Servidor (Render)</span>
-                </button>
-                <div id="api-config-container" class="hidden" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-                    <label for="custom-api-url-input" style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary);">URL del Backend</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="url" id="custom-api-url-input" placeholder="https://mi-servidor.onrender.com" style="flex: 1; padding: 6px 10px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; min-width: 0;">
-                        <button type="button" id="btn-save-api-url" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">Guardar</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Contenedor del Dashboard -->
     <div class="app-container" id="dashboard-section">
@@ -94,20 +51,8 @@
                 </a>
             </nav>
             
-            <div class="sidebar-footer" style="padding: 16px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; width: 100%;">
-                <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
-                    <div style="width: 36px; height: 36px; background-color: var(--primary); border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700;" id="sidebar-user-avatar">
-                        A
-                    </div>
-                    <div style="display: flex; flex-direction: column; overflow: hidden; flex: 1;">
-                        <span id="sidebar-user-name" style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Administrador</span>
-                        <span id="sidebar-user-role" style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">@admin</span>
-                    </div>
-                </div>
-                <button id="btn-logout" class="btn btn-secondary" style="width: 100%; justify-content: center; font-size: 0.8rem; padding: 6px 12px; gap: 6px; border: 1px solid var(--border-color); border-radius: 8px;">
-                    <i data-lucide="log-out" style="width: 14px; height: 14px;"></i>
-                    <span>Cerrar Sesión</span>
-                </button>
+            <div class="sidebar-footer">
+                Control de Gastos v1.2
             </div>
         </aside>
 
@@ -568,10 +513,7 @@
                     <i data-lucide="calendar-days"></i>
                     <span>Mensualidades</span>
                 </button>
-                <button class="tab-btn" id="tab-users">
-                    <i data-lucide="users"></i>
-                    <span>Usuarios</span>
-                </button>
+
             </div>
             
             <!-- Content Tab: Branches -->
@@ -676,78 +618,7 @@
                 </div>
             </div>
 
-            <!-- Content Tab: Users (Profile, Register User, User List) -->
-            <div class="tab-content hidden" id="content-users">
-                <div style="display: flex; flex-direction: column; gap: 20px; padding: 12px 0;">
-                    
-                    <!-- Section: My Profile -->
-                    <div style="background: rgba(79, 70, 229, 0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            <i data-lucide="user-cog" style="color: var(--primary); width: 18px; height: 18px;"></i>
-                            <span>Mi Perfil</span>
-                        </h3>
-                        <form id="edit-profile-form" style="display: flex; flex-direction: column; gap: 12px;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <div>
-                                    <label for="profile-username" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Usuario</label>
-                                    <input type="text" id="profile-username" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem;">
-                                </div>
-                                <div>
-                                    <label for="profile-password" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Nueva Contraseña (opcional)</label>
-                                    <input type="password" id="profile-password" placeholder="Dejar en blanco para no cambiar" style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem;">
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary" style="align-self: flex-end; padding: 6px 16px; font-size: 0.85rem;">
-                                <i data-lucide="save"></i>
-                                <span>Actualizar Perfil</span>
-                            </button>
-                        </form>
-                    </div>
 
-                    <!-- Section: Add New User -->
-                    <div style="background: rgba(16, 185, 129, 0.03); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color);">
-                        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            <i data-lucide="user-plus" style="color: var(--success); width: 18px; height: 18px;"></i>
-                            <span>Registrar Nuevo Usuario</span>
-                        </h3>
-                        <form id="add-user-form" style="display: flex; flex-direction: column; gap: 12px;">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <div>
-                                    <label for="new-user-name" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Nombre Completo</label>
-                                    <input type="text" id="new-user-name" placeholder="Ej. Juan Pérez" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem;">
-                                </div>
-                                <div>
-                                    <label for="new-user-username" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Nombre de Usuario</label>
-                                    <input type="text" id="new-user-username" placeholder="juan.perez" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end;">
-                                <div>
-                                    <label for="new-user-password" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 4px;">Contraseña</label>
-                                    <input type="password" id="new-user-password" placeholder="Mínimo 4 caracteres" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 0.85rem;">
-                                </div>
-                                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 8px 12px; font-size: 0.85rem;">
-                                    <i data-lucide="user-plus"></i>
-                                    <span>Registrar Usuario</span>
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Section: User List -->
-                    <div>
-                        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            <i data-lucide="users" style="color: var(--text-primary); width: 18px; height: 18px;"></i>
-                            <span>Usuarios del Sistema</span>
-                        </h3>
-                        <div class="settings-list-wrapper" style="max-height: 200px; overflow-y: auto;">
-                            <ul class="settings-list" id="settings-users-list">
-                                <!-- Generado dinámicamente -->
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
 
             

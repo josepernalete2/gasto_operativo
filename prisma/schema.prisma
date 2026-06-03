@@ -46,11 +46,3 @@ model RecurringPayment {
   branch      String
   category    String
 }
-
-model User {
-  id       String @id @default(uuid())
-  username String @unique
-  password String // Hashed password
-  name     String
-  role     String @default("admin")
-}
