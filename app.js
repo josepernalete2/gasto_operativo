@@ -9,6 +9,8 @@ let RECURRING_TEMPLATES = [];
 let editingId = null; // Stores ID of the row being edited in-line
 let editingSettingId = null; // Stores "branch-X" or "category-X" while editing settings
 let ACTIVE_RATES = { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 };
+let CURRENT_USER = null;
+let USERS_LIST = [];
 
 const BRANCH_COLORS = [
     '#3b82f6', // Norte - Blue
@@ -60,6 +62,13 @@ function formatCurrencyVes(value) {
 
 // Helper to perform fetch and validate JSON response content-type
 async function safeFetchJson(url, options = {}) {
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+        if (!options.headers) {
+            options.headers = {};
+        }
+        options.headers["Authorization"] = `Bearer ${token}`;
+    }
     const response = await fetch(url, options);
     const contentType = response.headers.get("content-type");
     const isJson = contentType && contentType.includes("application/json");
@@ -80,6 +89,26 @@ async function safeFetchJson(url, options = {}) {
 // ============================================================================
 
 async function initApp() {
+    // Seed local users if running locally
+    if (isLocalFile) {
+        let storedUsers = localStorage.getItem("users_data");
+        if (!storedUsers) {
+            storedUsers = [
+                { id: "admin-id", username: "admin", password: "admin 123", name: "Administrador", role: "admin" }
+            ];
+            localStorage.setItem("users_data", JSON.stringify(storedUsers));
+        }
+    }
+
+    // Always setup login listeners first
+    setupLoginListeners();
+
+    const isAuthenticated = await checkAuth();
+    if (!isAuthenticated) {
+        // Stop loading further app details, wait for login success
+        return;
+    }
+    
     // Load rates first
     await loadRates();
     // Load expenses
@@ -1582,6 +1611,14 @@ function initSettingsModal() {
     const openSettings = () => {
         editingSettingId = null;
         
+        // Populate profile inputs
+        if (CURRENT_USER) {
+            const pUser = document.getElementById("profile-username");
+            const pPass = document.getElementById("profile-password");
+            if (pUser) pUser.value = CURRENT_USER.username;
+            if (pPass) pPass.value = "";
+        }
+        
         const recBranchSelect = document.getElementById("new-rec-branch");
         const recCatSelect = document.getElementById("new-rec-category");
         if (recBranchSelect && recCatSelect) {
@@ -1616,6 +1653,11 @@ function initSettingsModal() {
     
     document.getElementById("tab-branches").addEventListener("click", () => switchSettingsTab('branches'));
     document.getElementById("tab-categories").addEventListener("click", () => switchSettingsTab('categories'));
+    
+    const tabUsers = document.getElementById("tab-users");
+    if (tabUsers) {
+        tabUsers.addEventListener("click", () => switchSettingsTab('users'));
+    }
     
     const addBranchForm = document.getElementById("add-branch-form");
     const addCategoryForm = document.getElementById("add-category-form");
@@ -1974,10 +2016,146 @@ function initSettingsModal() {
         };
         reader.readAsText(file);
     });
+
+    // Edit Profile form
+    const editProfileForm = document.getElementById("edit-profile-form");
+    if (editProfileForm) {
+        editProfileForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const usernameInput = document.getElementById("profile-username").value.trim().toLowerCase();
+            const passwordInput = document.getElementById("profile-password").value;
+            
+            if (!usernameInput) {
+                showToast("El usuario es obligatorio.", "warning");
+                return;
+            }
+            
+            if (isLocalFile) {
+                let localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+                
+                // Check if username is taken by someone else
+                const existing = localUsers.find(u => u.username === usernameInput && u.id !== CURRENT_USER.id);
+                if (existing) {
+                    showToast("El nombre de usuario ya está registrado.", "danger");
+                    return;
+                }
+                
+                // Update user
+                localUsers = localUsers.map(u => {
+                    if (u.id === CURRENT_USER.id) {
+                        const updated = { ...u, username: usernameInput };
+                        if (passwordInput.trim() !== "") {
+                            updated.password = passwordInput;
+                        }
+                        return updated;
+                    }
+                    return u;
+                });
+                
+                localStorage.setItem("users_data", JSON.stringify(localUsers));
+                // Update current user
+                CURRENT_USER.username = usernameInput;
+                // Also update localStorage auth_token since it stores username
+                localStorage.setItem("auth_token", usernameInput);
+                
+                updateSidebarUser();
+                document.getElementById("profile-password").value = "";
+                showToast("Perfil actualizado localmente.", "success");
+                loadUsersList();
+            } else {
+                try {
+                    const response = await safeFetchJson(`${API_BASE_URL}/api/settings/users/profile`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: usernameInput, password: passwordInput })
+                    });
+                    
+                    localStorage.setItem("auth_token", response.token);
+                    CURRENT_USER = response.user;
+                    
+                    updateSidebarUser();
+                    document.getElementById("profile-password").value = "";
+                    showToast("Perfil actualizado correctamente.", "success");
+                    loadUsersList();
+                } catch (error) {
+                    showToast(`Error: ${error.message}`, "danger");
+                }
+            }
+        });
+    }
+    
+    // Add User form
+    const addUserForm = document.getElementById("add-user-form");
+    if (addUserForm) {
+        addUserForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const nameInput = document.getElementById("new-user-name");
+            const usernameInput = document.getElementById("new-user-username");
+            const passwordInput = document.getElementById("new-user-password");
+            
+            const name = nameInput.value.trim();
+            const username = usernameInput.value.trim().toLowerCase();
+            const password = passwordInput.value;
+            
+            if (!name || !username || !password) {
+                showToast("Todos los campos son obligatorios.", "warning");
+                return;
+            }
+            if (password.length < 4) {
+                showToast("La contraseña debe tener al menos 4 caracteres.", "warning");
+                return;
+            }
+            
+            if (isLocalFile) {
+                const localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+                const existing = localUsers.find(u => u.username === username);
+                if (existing) {
+                    showToast("El nombre de usuario ya está registrado.", "danger");
+                    return;
+                }
+                
+                const newUser = {
+                    id: "user-" + Date.now(),
+                    name,
+                    username,
+                    password,
+                    role: "admin"
+                };
+                localUsers.push(newUser);
+                localStorage.setItem("users_data", JSON.stringify(localUsers));
+                
+                nameInput.value = "";
+                usernameInput.value = "";
+                passwordInput.value = "";
+                
+                showToast(`Usuario "${username}" registrado localmente.`, "success");
+                loadUsersList();
+            } else {
+                try {
+                    const response = await safeFetchJson(`${API_BASE_URL}/api/settings/users`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, username, password })
+                    });
+                    
+                    USERS_LIST = response;
+                    
+                    nameInput.value = "";
+                    usernameInput.value = "";
+                    passwordInput.value = "";
+                    
+                    showToast(`Usuario "${username}" registrado correctamente.`, "success");
+                    loadUsersList();
+                } catch (error) {
+                    showToast(`Error: ${error.message}`, "danger");
+                }
+            }
+        });
+    }
 }
 
 function switchSettingsTab(tabName) {
-    const tabs = ['branches', 'categories', 'backup', 'recurring'];
+    const tabs = ['branches', 'categories', 'backup', 'recurring', 'users'];
     tabs.forEach(t => {
         const tabBtn = document.getElementById(`tab-${t}`);
         const tabContent = document.getElementById(`content-${t}`);
@@ -1989,6 +2167,10 @@ function switchSettingsTab(tabName) {
             if (tabContent) tabContent.classList.add("hidden");
         }
     });
+    
+    if (tabName === 'users') {
+        loadUsersList();
+    }
 }
 
 function renderSettingsLists() {
@@ -2086,5 +2268,246 @@ function renderSettingsLists() {
         });
     }
     
+    // Render Users List
+    const usersListEl = document.getElementById("settings-users-list");
+    if (usersListEl) {
+        usersListEl.innerHTML = "";
+        USERS_LIST.forEach(u => {
+            const li = document.createElement("li");
+            li.className = "settings-item";
+            li.style.display = "flex";
+            li.style.justifyContent = "space-between";
+            li.style.alignItems = "center";
+            li.style.padding = "8px 12px";
+            
+            // Cannot delete yourself
+            const isSelf = CURRENT_USER && CURRENT_USER.id === u.id;
+            const deleteButtonHtml = isSelf
+                ? `<span style="font-size: 0.72rem; color: var(--text-secondary); font-style: italic; padding: 4px 8px;">Tú</span>`
+                : `<button class="btn-icon delete" onclick="deleteSystemUser('${u.id}')" title="Eliminar usuario">
+                       <i data-lucide="trash-2"></i>
+                   </button>`;
+            
+            li.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${u.name}</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">@${u.username} (${u.role})</span>
+                </div>
+                <div class="settings-item-actions">
+                    ${deleteButtonHtml}
+                </div>
+            `;
+            usersListEl.appendChild(li);
+        });
+    }
+    
     lucide.createIcons();
 }
+
+async function loadUsersList() {
+    if (isLocalFile) {
+        const localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+        USERS_LIST = localUsers.map(u => ({ id: u.id, username: u.username, name: u.name, role: u.role }));
+        renderSettingsLists();
+    } else {
+        try {
+            const users = await safeFetchJson(`${API_BASE_URL}/api/settings/users`);
+            USERS_LIST = users;
+            renderSettingsLists();
+        } catch (error) {
+            console.error("Error loading users:", error);
+            showToast("No se pudo cargar la lista de usuarios.", "danger");
+        }
+    }
+}
+
+async function checkAuth() {
+    const token = localStorage.getItem("auth_token");
+    if (!token) {
+        showLoginOverlay();
+        return false;
+    }
+    
+    if (isLocalFile) {
+        const localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+        const found = localUsers.find(u => u.username === token);
+        if (found) {
+            CURRENT_USER = { id: found.id, username: found.username, name: found.name, role: found.role };
+            updateSidebarUser();
+            hideLoginOverlay();
+            return true;
+        } else {
+            localStorage.removeItem("auth_token");
+            showLoginOverlay();
+            return false;
+        }
+    } else {
+        try {
+            const data = await safeFetchJson(`${API_BASE_URL}/api/auth/me`);
+            CURRENT_USER = data;
+            updateSidebarUser();
+            hideLoginOverlay();
+            return true;
+        } catch (error) {
+            console.error("Session verification failed:", error);
+            localStorage.removeItem("auth_token");
+            showLoginOverlay();
+            return false;
+        }
+    }
+}
+
+function showLoginOverlay() {
+    const loginOverlay = document.getElementById("login-overlay");
+    const dashboardSection = document.getElementById("dashboard-section");
+    if (loginOverlay) loginOverlay.style.display = "flex";
+    if (dashboardSection) dashboardSection.style.display = "none";
+}
+
+function hideLoginOverlay() {
+    const loginOverlay = document.getElementById("login-overlay");
+    const dashboardSection = document.getElementById("dashboard-section");
+    if (loginOverlay) loginOverlay.style.display = "none";
+    if (dashboardSection) dashboardSection.style.display = "flex";
+}
+
+function updateSidebarUser() {
+    if (CURRENT_USER) {
+        const nameEl = document.getElementById("sidebar-user-name");
+        const roleEl = document.getElementById("sidebar-user-role");
+        const avatarEl = document.getElementById("sidebar-user-avatar");
+        
+        if (nameEl) nameEl.textContent = CURRENT_USER.name || CURRENT_USER.username;
+        if (roleEl) roleEl.textContent = `@${CURRENT_USER.username}`;
+        if (avatarEl) {
+            const firstLetter = (CURRENT_USER.name || CURRENT_USER.username).charAt(0).toUpperCase();
+            avatarEl.textContent = firstLetter;
+        }
+    }
+}
+
+function setupLoginListeners() {
+    const loginForm = document.getElementById("login-form");
+    if (!loginForm) return;
+    
+    // Remove existing submit event listener if any by cloning
+    const newForm = loginForm.cloneNode(true);
+    loginForm.parentNode.replaceChild(newForm, loginForm);
+    
+    newForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const usernameInput = document.getElementById("login-username").value.trim().toLowerCase();
+        const passwordInput = document.getElementById("login-password").value;
+        
+        if (!usernameInput || !passwordInput) {
+            showToast("Por favor complete todos los campos.", "warning");
+            return;
+        }
+        
+        if (isLocalFile) {
+            const localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+            const found = localUsers.find(u => u.username === usernameInput);
+            if (found && found.password === passwordInput) {
+                localStorage.setItem("auth_token", found.username);
+                CURRENT_USER = { id: found.id, username: found.username, name: found.name, role: found.role };
+                
+                showToast("Inicio de sesión exitoso (Modo Local).", "success");
+                hideLoginOverlay();
+                await initAppAfterLogin();
+            } else {
+                showToast("Usuario o contraseña incorrectos.", "danger");
+            }
+        } else {
+            try {
+                const data = await safeFetchJson(`${API_BASE_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: usernameInput, password: passwordInput })
+                });
+                
+                localStorage.setItem("auth_token", data.token);
+                CURRENT_USER = data.user;
+                
+                showToast("Inicio de sesión exitoso.", "success");
+                hideLoginOverlay();
+                await initAppAfterLogin();
+            } catch (error) {
+                showToast(error.message || "Error al iniciar sesión.", "danger");
+            }
+        }
+    });
+    
+    const logoutBtn = document.getElementById("btn-logout");
+    if (logoutBtn) {
+        // Clone to avoid multiple listners
+        const newLogoutBtn = logoutBtn.cloneNode(true);
+        logoutBtn.parentNode.replaceChild(newLogoutBtn, logoutBtn);
+        
+        newLogoutBtn.addEventListener("click", () => {
+            localStorage.removeItem("auth_token");
+            showToast("Sesión cerrada.", "info");
+            setTimeout(() => {
+                window.location.reload();
+            }, 800);
+        });
+    }
+}
+
+async function initAppAfterLogin() {
+    updateSidebarUser();
+    
+    // Load rates first
+    await loadRates();
+    // Load expenses
+    await loadExpenses();
+    
+    // Populate filter and form dropdown options dynamically
+    populateDropdowns();
+    
+    // Populate header date
+    initHeaderDate();
+    
+    // Initialize Charts
+    initCharts();
+    
+    // Render Dashboard UI
+    renderDashboard();
+    
+    // Setup Event Listeners
+    setupEventListeners();
+    
+    // Initialize settings modal events
+    initSettingsModal();
+    
+    // Render Lucide Icons
+    lucide.createIcons();
+}
+
+window.deleteSystemUser = async function(id) {
+    if (!CURRENT_USER) return;
+    if (CURRENT_USER.id === id) {
+        showToast("No puedes eliminar tu propio usuario.", "danger");
+        return;
+    }
+    if (confirm("¿Está seguro de que desea eliminar este usuario?")) {
+        if (isLocalFile) {
+            let localUsers = JSON.parse(localStorage.getItem("users_data") || "[]");
+            localUsers = localUsers.filter(u => u.id !== id);
+            localStorage.setItem("users_data", JSON.stringify(localUsers));
+            USERS_LIST = localUsers.map(u => ({ id: u.id, username: u.username, name: u.name, role: u.role }));
+            renderSettingsLists();
+            showToast("Usuario eliminado (Modo Local).", "info");
+        } else {
+            try {
+                const response = await safeFetchJson(`${API_BASE_URL}/api/settings/users/${id}`, {
+                    method: 'DELETE'
+                });
+                USERS_LIST = response;
+                renderSettingsLists();
+                showToast("Usuario eliminado correctamente.", "success");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
+        }
+    }
+};

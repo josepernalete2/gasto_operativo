@@ -1235,13 +1235,21 @@ tr.editing-row td {
     margin-bottom: 20px;
     background-color: var(--bg-primary);
     padding: 0 16px;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE 10+ */
+}
+
+.settings-tabs::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
 }
 
 .tab-btn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 14px 20px;
+    padding: 14px 16px;
     font-size: 0.875rem;
     font-weight: 600;
     border: none;
@@ -1250,6 +1258,7 @@ tr.editing-row td {
     cursor: pointer;
     transition: all 0.2s ease;
     border-bottom: 2px solid transparent;
+    flex-shrink: 0;
 }
 
 .tab-btn:hover {
