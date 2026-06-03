@@ -1763,3 +1763,18 @@ tr.editing-row td {
     display: none !important;
 }
 
+/* Notifications styles */
+.notifications-dropdown.hidden {
+    display: none !important;
+}
+.notification-badge.hidden {
+    display: none !important;
+}
+.notification-item {
+    transition: all 0.2s ease;
+}
+.notification-item:hover {
+    background-color: var(--bg-active) !important;
+    border-color: var(--primary) !important;
+}
+

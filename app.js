@@ -5,8 +5,10 @@
 let expenses = [];
 let BRANCHES = [];
 let CATEGORIES = [];
+let RECURRING_TEMPLATES = [];
 let editingId = null; // Stores ID of the row being edited in-line
 let editingSettingId = null; // Stores "branch-X" or "category-X" while editing settings
+let ACTIVE_RATES = { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 };
 
 const BRANCH_COLORS = [
     '#3b82f6', // Norte - Blue
@@ -24,21 +26,15 @@ let branchChartInstance = null;
 let categoryChartInstance = null;
 let statusChartInstance = null;
 
-// Dual Mode Indicators:
-// 1. Check if running directly from local filesystem (file://)
+// Check if running directly from local filesystem (file://)
 Object.defineProperty(window, 'isLocalFile', {
     get: function() {
-        const isLocalFileReal = window.location.protocol === 'file:';
-        const token = localStorage.getItem("auth_token");
-        const hasMockToken = token && token !== "undefined" && token !== "null" && token.startsWith("mock_token_");
-        return isLocalFileReal || hasMockToken;
+        return window.location.protocol === 'file:';
     },
     configurable: true
 });
 
-// 2. Define API Base URL dynamically. If running on another port (like Live Server 5500) locally, 
-// route database API requests to the Express server on port 3000.
-// If running in production (hosted on a server), route requests relatively to the hosting origin.
+// Define API Base URL dynamically
 const isLocalhost = window.location.hostname === 'localhost' || 
                     window.location.hostname === '127.0.0.1' || 
                     window.location.hostname === '[::1]';
@@ -46,13 +42,20 @@ const isLocalhost = window.location.hostname === 'localhost' ||
 const API_BASE_URL = isLocalFile 
     ? '' 
     : (isLocalhost ? (window.location.port === '3000' ? '' : 'http://localhost:3000') : 'https://gasto-operativo.onrender.com');
-// Helper to get authenticated headers
-function getAuthHeaders() {
-    const token = localStorage.getItem("auth_token");
-    return {
-        "Content-Type": "application/json",
-        "Authorization": token ? `Bearer ${token}` : ""
-    };
+
+// Helper to format money values
+function formatCurrencyUsd(value) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+    }).format(value);
+}
+
+function formatCurrencyVes(value) {
+    return 'Bs. ' + new Intl.NumberFormat('es-VE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(value);
 }
 
 // Helper to perform fetch and validate JSON response content-type
@@ -77,20 +80,9 @@ async function safeFetchJson(url, options = {}) {
 // ============================================================================
 
 async function initApp() {
-    // Dynamically populate user profile in sidebar
-    const storedUsername = localStorage.getItem("user_username") || "Administrador";
-    const storedRole = localStorage.getItem("user_role") || "ADMIN";
-    const storedBranch = localStorage.getItem("user_branch") || "";
-    
-    const roleText = storedRole === "ADMIN" ? "Administrador" : `Sede: ${storedBranch}`;
-    const sidebarUser = document.getElementById("sidebar-user-name");
-    const sidebarRole = document.getElementById("sidebar-user-role");
-    const sidebarAvatar = document.getElementById("sidebar-user-avatar");
-    
-    if (sidebarUser) sidebarUser.textContent = storedUsername;
-    if (sidebarRole) sidebarRole.textContent = roleText;
-    if (sidebarAvatar) sidebarAvatar.textContent = storedUsername.substring(0, 2).toUpperCase();
-    // Load expenses and settings parameters (handles server mode or local fallback)
+    // Load rates first
+    await loadRates();
+    // Load expenses
     await loadExpenses();
     
     // Populate filter and form dropdown options dynamically
@@ -118,100 +110,41 @@ async function initApp() {
 document.addEventListener("DOMContentLoaded", async () => {
     // Initialize Theme (Light / Dark) on start
     initTheme();
-    
-    const token = localStorage.getItem("auth_token");
-    const loginSection = document.getElementById("login-section");
-    const dashboardSection = document.getElementById("dashboard-section");
-
-    if (token && token !== "undefined" && token !== "null" && token.trim() !== "") {
-        loginSection.classList.add("hidden");
-        dashboardSection.classList.remove("hidden");
-        await initApp();
-    } else {
-        localStorage.removeItem("auth_token");
-        loginSection.classList.remove("hidden");
-        dashboardSection.classList.add("hidden");
-        lucide.createIcons();
-    }
-
-    setupLoginHandler();
+    await initApp();
 });
 
-function setupLoginHandler() {
-    const loginForm = document.getElementById("login-form");
-    if (!loginForm) return;
-
-    loginForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        
-        const username = document.getElementById("login-username").value.trim();
-        const password = document.getElementById("login-password").value;
-        
-        // --- REAL JWT BACKEND LOGIN (UNCOMMENT WHEN BACKEND DEPLOYED) ---
-        /*
-        try {
-            const data = await safeFetchJson(`${API_BASE_URL}/api/auth/login`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, password })
-            });
-            localStorage.setItem("auth_token", data.token);
-            localStorage.setItem("user_role", data.user.role);
-            localStorage.setItem("user_branch", data.user.branch || "");
-            localStorage.setItem("user_username", data.user.username);
-            
-            document.getElementById("login-section").classList.add("hidden");
-            document.getElementById("dashboard-section").classList.remove("hidden");
-            await initApp();
-            showToast("¡Inicio de sesión exitoso!", "success");
-        } catch (error) {
-            showToast(error.message, "danger");
-        }
-        return;
-        */
-
-        // --- MOCK SIMULATED LOGIN FOR TESTING ---
-        if (username === "admin" && password === "admin123") {
-            localStorage.setItem("auth_token", "mock_token_admin_123456789");
-            localStorage.setItem("user_role", "ADMIN");
-            
-            document.getElementById("login-section").classList.add("hidden");
-            document.getElementById("dashboard-section").classList.remove("hidden");
-            
-            await initApp();
-            showToast("¡Inicio de sesión exitoso (Simulado)!", "success");
-        } else if (username === "sede_norte" && password === "sede123") {
-            localStorage.setItem("auth_token", "mock_token_sede_norte_123456789");
-            localStorage.setItem("user_role", "SEDE");
-            localStorage.setItem("user_branch", "Sede Norte");
-            
-            document.getElementById("login-section").classList.add("hidden");
-            document.getElementById("dashboard-section").classList.remove("hidden");
-            
-            await initApp();
-            showToast("¡Inicio de sesión exitoso (Simulado)!", "success");
+// Load Exchange Rates (Dual Mode)
+async function loadRates() {
+    if (isLocalFile) {
+        const stored = localStorage.getItem("exchange_rates");
+        if (stored) {
+            ACTIVE_RATES = JSON.parse(stored);
         } else {
-            showToast("Credenciales inválidas. Usa admin/admin123 o sede_norte/sede123", "danger");
+            ACTIVE_RATES = { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 };
+            localStorage.setItem("exchange_rates", JSON.stringify(ACTIVE_RATES));
         }
-    });
-
-    const logoutBtn = document.getElementById("btn-logout");
-    if (logoutBtn) {
-        logoutBtn.addEventListener("click", () => {
-            logout();
-        });
+    } else {
+        try {
+            const data = await safeFetchJson(`${API_BASE_URL}/api/settings/rates`);
+            ACTIVE_RATES = data;
+        } catch (error) {
+            console.error("Error loading rates from server:", error);
+            showToast("Error al cargar las tasas de cambio en tiempo real. Usando valores por defecto.", "warning");
+            ACTIVE_RATES = { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 };
+        }
     }
-}
-
-function logout() {
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("user_role");
-    localStorage.removeItem("user_branch");
-    showToast("Sesión cerrada.", "info");
     
-    setTimeout(() => {
-        window.location.reload();
-    }, 800);
+    // Render rates to DOM elements
+    document.getElementById("rate-bcv-value").textContent = `Bs. ${ACTIVE_RATES.bcv.toFixed(2)}`;
+    document.getElementById("rate-paralelo-value").textContent = `Bs. ${ACTIVE_RATES.paralelo.toFixed(2)}`;
+    document.getElementById("rate-euro-value").textContent = `Bs. ${ACTIVE_RATES.euro.toFixed(2)}`;
+    document.getElementById("rate-usdt-value").textContent = `Bs. ${ACTIVE_RATES.usdt.toFixed(2)}`;
+    
+    const todayStr = new Date().toLocaleDateString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById("rate-bcv-date").textContent = `Última act: ${todayStr}`;
+    document.getElementById("rate-paralelo-date").textContent = `Última act: ${todayStr}`;
+    document.getElementById("rate-euro-date").textContent = `Última act: ${todayStr}`;
+    document.getElementById("rate-usdt-date").textContent = `Última act: ${todayStr}`;
 }
 
 // Load expenses data (Dual-Mode: LocalStorage fallback vs API Server)
@@ -238,21 +171,25 @@ async function loadExpenses() {
         if (stored) {
             expenses = JSON.parse(stored);
         } else {
-            // Seed default expenses
-            expenses = [
-                { id: "EXP-101", date: "2026-05-10", branch: "Sede Norte", category: "Nómina", description: "Nómina quincenal de personal operativo", amount: 4850.00, status: "Pagado" },
-                { id: "EXP-102", date: "2026-05-12", branch: "Sede Sur", category: "Servicios", description: "Consumo eléctrico oficinas administrativas - Abril", amount: 385.50, status: "Pagado" },
-                { id: "EXP-103", date: "2026-05-15", branch: "Sede Este", category: "Proveedores", description: "Compra de suministros y consumibles de oficina", amount: 890.00, status: "Pendiente" },
-                { id: "EXP-104", date: "2026-05-18", branch: "Sede Oeste", category: "Mantenimiento", description: "Mantenimiento preventivo de aire acondicionado central", amount: 1250.00, status: "Pagado" },
-                { id: "EXP-105", date: "2026-05-20", branch: "Sede Norte", category: "Tecnología", description: "Suscripción anual a licencias ERP en la nube", amount: 2400.00, status: "Pendiente" },
-                { id: "EXP-106", date: "2026-05-22", branch: "Sede Sur", category: "Marketing", description: "Campaña publicitaria Google Ads & Redes Sociales", amount: 1500.00, status: "Pagado" },
-                { id: "EXP-107", date: "2026-05-24", branch: "Sede Oeste", category: "Proveedores", description: "Servicio externo de mensajería y distribución", amount: 620.00, status: "Pagado" },
-                { id: "EXP-108", date: "2026-05-25", branch: "Sede Este", category: "Servicios", description: "Servicio de internet simétrico y telefonía VoIP", amount: 180.00, status: "Pagado" }
-            ];
+            expenses = [];
             saveExpensesToStorage();
         }
         
-        // Show delay warning toast to clarify they are running in local mode
+        // Backfill calculated fields for LocalStorage mock expenses
+        expenses.forEach(e => {
+            if (e.currency === undefined) e.currency = "USD";
+            if (e.exchangeRate === undefined) e.exchangeRate = 1.0;
+            if (e.amountUsd === undefined) {
+                e.amountUsd = e.currency === "VES" ? e.amount / ACTIVE_RATES.bcv : e.amount;
+            }
+            if (e.amountVes === undefined) {
+                e.amountVes = e.currency === "VES" ? e.amount : e.amount * ACTIVE_RATES.bcv;
+            }
+        });
+
+        // Autogenerate monthly local recurring payments
+        generateLocalRecurringExpenses();
+        
         setTimeout(() => {
             showToast("Ejecutando en Modo Local (LocalStorage). Abre http://localhost:3000 para usar la Base de Datos.", "info");
         }, 800);
@@ -260,17 +197,79 @@ async function loadExpenses() {
     } else {
         // --- SERVER DATABASE MODE ---
         try {
-            const data = await safeFetchJson(`${API_BASE_URL}/api/data`, {
-                headers: getAuthHeaders()
-            });
-            
+            const data = await safeFetchJson(`${API_BASE_URL}/api/data`);
             expenses = data.expenses || [];
             BRANCHES = data.branches || [];
             CATEGORIES = data.categories || [];
+            RECURRING_TEMPLATES = data.recurring || [];
         } catch (error) {
             console.error("Database connection error:", error);
             showToast("Error al conectar con la base de datos.", "danger");
         }
+    }
+}
+
+function generateLocalRecurringExpenses() {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const currentDay = today.getDate();
+    
+    const storedTemplates = localStorage.getItem("recurring_templates");
+    if (storedTemplates) {
+        RECURRING_TEMPLATES = JSON.parse(storedTemplates);
+    } else {
+        RECURRING_TEMPLATES = [
+            { id: "default-condominio", description: "Pago de Condominio - Mensualidad", dayOfMonth: 5, amount: 120.0, branch: "Sede Norte", category: "Servicios" }
+        ];
+        localStorage.setItem("recurring_templates", JSON.stringify(RECURRING_TEMPLATES));
+    }
+    
+    let updated = false;
+    const monthPrefix = `${currentYear}-${currentMonth}`;
+    
+    RECURRING_TEMPLATES.forEach(template => {
+        if (currentDay >= template.dayOfMonth) {
+            const scheduledDayStr = String(template.dayOfMonth).padStart(2, '0');
+            const scheduledDate = `${monthPrefix}-${scheduledDayStr}`;
+            
+            const existing = expenses.find(e => e.description === template.description && e.category === template.category && e.date.startsWith(monthPrefix));
+            
+            if (!existing) {
+                const nextIdNumber = expenses.reduce((max, curr) => {
+                    const parts = curr.id.split("-");
+                    if (parts.length === 2) {
+                        const num = parseInt(parts[1]);
+                        if (!isNaN(num)) return num > max ? num : max;
+                    }
+                    return max;
+                }, 100) + 1;
+                const newId = `EXP-${nextIdNumber}`;
+                
+                const amountUsd = template.amount;
+                const amountVes = amountUsd * ACTIVE_RATES.bcv;
+                
+                expenses.push({
+                    id: newId,
+                    date: scheduledDate,
+                    branch: template.branch,
+                    category: template.category,
+                    description: template.description,
+                    amount: amountUsd,
+                    currency: "USD",
+                    exchangeRate: 1.0,
+                    amountUsd: amountUsd,
+                    amountVes: amountVes,
+                    status: "Pendiente"
+                });
+                updated = true;
+                console.log(`Auto-generated local recurring expense: ${template.description}`);
+            }
+        }
+    });
+    
+    if (updated) {
+        saveExpensesToStorage();
     }
 }
 
@@ -335,7 +334,6 @@ function initTheme() {
                         (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     
     document.documentElement.setAttribute("data-theme", storedTheme);
-    updateThemeToggleIcon(storedTheme);
     
     toggleBtn.addEventListener("click", () => {
         const currentTheme = document.documentElement.getAttribute("data-theme");
@@ -343,15 +341,10 @@ function initTheme() {
         
         document.documentElement.setAttribute("data-theme", newTheme);
         localStorage.setItem("theme", newTheme);
-        updateThemeToggleIcon(newTheme);
         
         // Dynamic Chart styling updates on theme change
         updateChartsThemeColors();
     });
-}
-
-function updateThemeToggleIcon(theme) {
-    // Handled via CSS classes
 }
 
 // Helper to get colors depending on theme
@@ -401,27 +394,39 @@ function showToast(message, type = "success") {
 
 function updateKPIs(filteredData) {
     // 1. Total General
-    const total = filteredData.reduce((acc, curr) => acc + curr.amount, 0);
-    document.getElementById("kpi-value-total").textContent = formatCurrency(total);
+    const totalUsd = filteredData.reduce((acc, curr) => acc + curr.amountUsd, 0);
+    const totalVes = filteredData.reduce((acc, curr) => acc + curr.amountVes, 0);
+    document.getElementById("kpi-value-total").innerHTML = `
+        <div>${formatCurrencyUsd(totalUsd)}</div>
+        <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 4px; font-weight: 500;">${formatCurrencyVes(totalVes)}</div>
+    `;
     
     // 2. Paid
     const paidExpenses = filteredData.filter(e => e.status === "Pagado");
-    const totalPaid = paidExpenses.reduce((acc, curr) => acc + curr.amount, 0);
-    document.getElementById("kpi-value-paid").textContent = formatCurrency(totalPaid);
+    const paidUsd = paidExpenses.reduce((acc, curr) => acc + curr.amountUsd, 0);
+    const paidVes = paidExpenses.reduce((acc, curr) => acc + curr.amountVes, 0);
+    document.getElementById("kpi-value-paid").innerHTML = `
+        <div>${formatCurrencyUsd(paidUsd)}</div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; font-weight: 500;">${formatCurrencyVes(paidVes)}</div>
+    `;
     document.getElementById("kpi-sub-paid").textContent = `${paidExpenses.length} transacciones liquidadas`;
     
     // 3. Pending
     const pendingExpenses = filteredData.filter(e => e.status === "Pendiente");
-    const totalPending = pendingExpenses.reduce((acc, curr) => acc + curr.amount, 0);
-    document.getElementById("kpi-value-pending").textContent = formatCurrency(totalPending);
+    const pendingUsd = pendingExpenses.reduce((acc, curr) => acc + curr.amountUsd, 0);
+    const pendingVes = pendingExpenses.reduce((acc, curr) => acc + curr.amountVes, 0);
+    document.getElementById("kpi-value-pending").innerHTML = `
+        <div>${formatCurrencyUsd(pendingUsd)}</div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; font-weight: 500;">${formatCurrencyVes(pendingVes)}</div>
+    `;
     document.getElementById("kpi-sub-pending").textContent = `${pendingExpenses.length} transacciones por pagar`;
     
-    // 4. Branch with maximum expenses
+    // 4. Sede con Mayor Gasto
     const branchTotals = {};
     BRANCHES.forEach(b => branchTotals[b] = 0);
     filteredData.forEach(e => {
         if (branchTotals[e.branch] !== undefined) {
-            branchTotals[e.branch] += e.amount;
+            branchTotals[e.branch] += e.amountUsd;
         }
     });
     
@@ -437,16 +442,8 @@ function updateKPIs(filteredData) {
     
     document.getElementById("kpi-value-branch").textContent = topBranch;
     document.getElementById("kpi-sub-branch").textContent = maxAmount > 0 
-        ? `Consumo: ${formatCurrency(maxAmount)}`
+        ? `Consumo: ${formatCurrencyUsd(maxAmount)}`
         : "Sin registros cargados";
-}
-
-// Helper to format money values
-function formatCurrency(value) {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD'
-    }).format(value);
 }
 
 // ============================================================================
@@ -487,7 +484,7 @@ function initCharts() {
                     bodyColor: colors.tooltipText,
                     callbacks: {
                         label: function(context) {
-                            return ` ${context.label}: ${formatCurrency(context.raw)}`;
+                            return ` ${context.label}: ${formatCurrencyUsd(context.raw)}`;
                         }
                     }
                 }
@@ -522,7 +519,7 @@ function initCharts() {
                     bodyColor: colors.tooltipText,
                     callbacks: {
                         label: function(context) {
-                            return ` Total: ${formatCurrency(context.raw)}`;
+                            return ` Total: ${formatCurrencyUsd(context.raw)}`;
                         }
                     }
                 }
@@ -581,7 +578,7 @@ function initCharts() {
                     bodyColor: colors.tooltipText,
                     callbacks: {
                         label: function(context) {
-                            return ` ${context.label}: ${formatCurrency(context.raw)}`;
+                            return ` ${context.label}: ${formatCurrencyUsd(context.raw)}`;
                         }
                     }
                 }
@@ -593,29 +590,29 @@ function initCharts() {
 function updateChartsData(filteredData) {
     if (!branchChartInstance || !categoryChartInstance || !statusChartInstance) return;
     
-    // 1. Recalculate Branch totals
+    // 1. Recalculate Branch totals in USD
     const branchTotals = BRANCHES.map(branch => {
         return filteredData
             .filter(e => e.branch === branch)
-            .reduce((sum, curr) => sum + curr.amount, 0);
+            .reduce((sum, curr) => sum + curr.amountUsd, 0);
     });
     
     branchChartInstance.data.datasets[0].data = branchTotals;
     branchChartInstance.update();
 
-    // 2. Recalculate Category totals
+    // 2. Recalculate Category totals in USD
     const categoryTotals = CATEGORIES.map(cat => {
         return filteredData
             .filter(e => e.category === cat)
-            .reduce((sum, curr) => sum + curr.amount, 0);
+            .reduce((sum, curr) => sum + curr.amountUsd, 0);
     });
     
     categoryChartInstance.data.datasets[0].data = categoryTotals;
     categoryChartInstance.update();
 
-    // 3. Recalculate Paid vs Pending
-    const paidSum = filteredData.filter(e => e.status === "Pagado").reduce((sum, curr) => sum + curr.amount, 0);
-    const pendingSum = filteredData.filter(e => e.status === "Pendiente").reduce((sum, curr) => sum + curr.amount, 0);
+    // 3. Recalculate Paid vs Pending in USD
+    const paidSum = filteredData.filter(e => e.status === "Pagado").reduce((sum, curr) => sum + curr.amountUsd, 0);
+    const pendingSum = filteredData.filter(e => e.status === "Pendiente").reduce((sum, curr) => sum + curr.amountUsd, 0);
     
     statusChartInstance.data.datasets[0].data = [paidSum, pendingSum];
     statusChartInstance.update();
@@ -727,7 +724,7 @@ function renderTable(filteredData) {
         emptyState.classList.add("hidden");
     }
     
-    // Sort expenses in descending order by date & id so latest shows up first
+    // Sort expenses in descending order
     const sortedData = [...filteredData].sort((a, b) => {
         if (b.date !== a.date) {
             return new Date(b.date) - new Date(a.date);
@@ -743,7 +740,6 @@ function renderTable(filteredData) {
             tr.className = "editing-row";
             tr.innerHTML = getInlineEditingTemplate(exp);
         } else {
-            // Safe branch pill style resolution
             let branchClass = "norte";
             if (exp.branch) {
                 const branchNameLower = exp.branch.toLowerCase();
@@ -757,7 +753,7 @@ function renderTable(filteredData) {
                     branchClass = idx !== -1 ? classes[idx % classes.length] : "norte";
                 }
             }
-            const statusClass = exp.status.toLowerCase(); // pagado, pendiente
+            const statusClass = exp.status.toLowerCase();
             
             tr.innerHTML = `
                 <td style="font-weight: 700;">${exp.id}</td>
@@ -770,7 +766,10 @@ function renderTable(filteredData) {
                 <td><span style="font-weight: 500;">${exp.category}</span></td>
                 <td>${exp.description}</td>
                 <td class="text-right" style="font-weight: 700; font-size: 0.95rem;">
-                    ${formatCurrency(exp.amount)}
+                    ${formatCurrencyUsd(exp.amountUsd)}
+                </td>
+                <td class="text-right" style="font-weight: 700; font-size: 0.95rem; color: #10b981;">
+                    ${formatCurrencyVes(exp.amountVes)}
                 </td>
                 <td>
                     <span class="status-pill ${statusClass}">
@@ -831,7 +830,10 @@ function getInlineEditingTemplate(exp) {
             <input type="text" class="table-edit-input" id="edit-desc-${exp.id}" value="${exp.description}" required>
         </td>
         <td>
-            <input type="number" class="table-edit-input text-right" id="edit-amount-${exp.id}" value="${exp.amount}" min="0.01" step="0.01" style="font-weight: 700;" required>
+            <input type="number" class="table-edit-input text-right" id="edit-amount-usd-${exp.id}" value="${exp.amountUsd.toFixed(2)}" min="0.01" step="0.01" style="font-weight: 700; width: 90px;" oninput="updateInlineEditRates('${exp.id}', 'usd')" required>
+        </td>
+        <td>
+            <input type="number" class="table-edit-input text-right" id="edit-amount-ves-${exp.id}" value="${exp.amountVes.toFixed(2)}" min="0.01" step="0.01" style="font-weight: 700; width: 120px;" oninput="updateInlineEditRates('${exp.id}', 'ves')" required>
         </td>
         <td>
             <select class="table-edit-input" id="edit-status-${exp.id}" required>
@@ -852,6 +854,28 @@ function getInlineEditingTemplate(exp) {
     `;
 }
 
+window.updateInlineEditRates = function(id, type) {
+    const usdInput = document.getElementById(`edit-amount-usd-${id}`);
+    const vesInput = document.getElementById(`edit-amount-ves-${id}`);
+    if (!usdInput || !vesInput) return;
+    
+    if (type === 'usd') {
+        const usdVal = parseFloat(usdInput.value) || 0;
+        if (usdVal > 0) {
+            vesInput.value = (usdVal * ACTIVE_RATES.bcv).toFixed(2);
+        } else {
+            vesInput.value = "";
+        }
+    } else {
+        const vesVal = parseFloat(vesInput.value) || 0;
+        if (vesVal > 0) {
+            usdInput.value = (vesVal / ACTIVE_RATES.bcv).toFixed(2);
+        } else {
+            usdInput.value = "";
+        }
+    }
+};
+
 function formatDate(dateStr) {
     const parts = dateStr.split("-");
     if (parts.length === 3) {
@@ -865,10 +889,109 @@ function renderDashboard() {
     updateKPIs(filtered);
     updateChartsData(filtered);
     renderTable(filtered);
+    renderNotifications();
 }
 
+function renderNotifications() {
+    const listEl = document.getElementById("notifications-list");
+    const countEl = document.getElementById("notification-count");
+    if (!listEl || !countEl) return;
+
+    // Filter all pending expenses
+    const pending = expenses.filter(e => e.status === "Pendiente");
+
+    listEl.innerHTML = "";
+    
+    if (pending.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align: center; padding: 24px 8px; color: var(--text-muted); font-size: 0.8rem;">
+                <i data-lucide="check-circle-2" style="width: 24px; height: 24px; margin-bottom: 8px; color: var(--success); opacity: 0.7;"></i>
+                <p>Al día. No hay pagos pendientes.</p>
+            </div>
+        `;
+        countEl.textContent = "0";
+        countEl.classList.add("hidden");
+        lucide.createIcons();
+        return;
+    }
+
+    countEl.textContent = pending.length;
+    countEl.classList.remove("hidden");
+
+    pending.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "notification-item";
+        div.style.cssText = "padding: 10px; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 6px; position: relative;";
+        
+        div.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary); line-height: 1.2;">${item.description}</span>
+                <span style="font-size: 0.7rem; font-weight: 700; color: var(--warning); background-color: var(--warning-bg); padding: 2px 6px; border-radius: 20px;">Pendiente</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-secondary);">
+                <span>${formatDate(item.date)}</span>
+                <strong style="color: var(--primary);">${formatCurrencyUsd(item.amountUsd)}</strong>
+            </div>
+            <button onclick="quickPayExpense('${item.id}')" style="background-color: var(--primary); color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7rem; font-weight: 600; cursor: pointer; align-self: flex-end; display: flex; align-items: center; gap: 4px; transition: background-color 0.2s; margin-top: 4px;">
+                <i data-lucide="check" style="width: 12px; height: 12px;"></i>
+                <span>Pagar</span>
+            </button>
+        `;
+        listEl.appendChild(div);
+    });
+
+    lucide.createIcons();
+}
+
+window.quickPayExpense = async function(id) {
+    if (isLocalFile) {
+        const index = expenses.findIndex(e => e.id === id);
+        if (index !== -1) {
+            expenses[index].status = "Pagado";
+            saveExpensesToStorage();
+            renderDashboard();
+            showToast(`Pago de ${id} registrado en LocalStorage.`, "success");
+        }
+    } else {
+        try {
+            const exp = expenses.find(e => e.id === id);
+            if (!exp) return;
+
+            const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
+                method: 'PUT',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    date: exp.date,
+                    branch: exp.branch,
+                    category: exp.category,
+                    description: exp.description,
+                    amount: exp.amount,
+                    currency: exp.currency,
+                    status: "Pagado"
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo registrar el pago.");
+            }
+
+            const updated = await response.json();
+            const index = expenses.findIndex(e => e.id === id);
+            if (index !== -1) {
+                expenses[index] = updated;
+            }
+
+            renderDashboard();
+            showToast(`Pago de ${id} registrado con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error al pagar: ${error.message}`, "danger");
+        }
+    }
+};
+
 // ============================================================================
-// DATA MUTATION HANDLERS (DUAL SYNC: LOCAL VS SERVER)
+// DATA MUTATION HANDLERS (DUAL SYNC)
 // ============================================================================
 
 window.startInlineEdit = function(id) {
@@ -886,23 +1009,24 @@ window.saveInlineEdit = async function(id) {
     const branchInput = document.getElementById(`edit-branch-${id}`);
     const categoryInput = document.getElementById(`edit-category-${id}`);
     const descInput = document.getElementById(`edit-desc-${id}`);
-    const amountInput = document.getElementById(`edit-amount-${id}`);
+    const amountUsdInput = document.getElementById(`edit-amount-usd-${id}`);
+    const amountVesInput = document.getElementById(`edit-amount-ves-${id}`);
     const statusInput = document.getElementById(`edit-status-${id}`);
     
     const dateVal = dateInput.value;
     const branchVal = branchInput.value;
     const categoryVal = categoryInput.value;
     const descVal = descInput.value.trim();
-    const amountVal = parseFloat(amountInput.value);
+    const amountUsdVal = parseFloat(amountUsdInput.value);
+    const amountVesVal = parseFloat(amountVesInput.value);
     const statusVal = statusInput.value;
     
-    if (!dateVal || !branchVal || !categoryVal || !descVal || isNaN(amountVal) || amountVal <= 0) {
+    if (!dateVal || !branchVal || !categoryVal || !descVal || isNaN(amountUsdVal) || amountUsdVal <= 0 || isNaN(amountVesVal) || amountVesVal <= 0) {
         showToast("Error: Complete todos los campos con valores válidos.", "danger");
         return;
     }
     
     if (isLocalFile) {
-        // --- LOCAL FALLBACK ---
         const index = expenses.findIndex(e => e.id === id);
         if (index !== -1) {
             expenses[index] = {
@@ -911,26 +1035,30 @@ window.saveInlineEdit = async function(id) {
                 branch: branchVal,
                 category: categoryVal,
                 description: descVal,
-                amount: amountVal,
+                amount: amountUsdVal,
+                currency: "USD",
+                exchangeRate: 1.0,
+                amountUsd: amountUsdVal,
+                amountVes: amountVesVal,
                 status: statusVal
             };
             saveExpensesToStorage();
             editingId = null;
             renderDashboard();
-            showToast(`Registro ${id} actualizado correctamente en LocalStorage.`, "success");
+            showToast(`Registro ${id} actualizado en LocalStorage.`, "success");
         }
     } else {
-        // --- SERVER REST API ---
         try {
             const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
                 method: 'PUT',
-                headers: getAuthHeaders(),
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     date: dateVal,
                     branch: branchVal,
                     category: categoryVal,
                     description: descVal,
-                    amount: amountVal,
+                    amount: amountUsdVal,
+                    currency: "USD",
                     status: statusVal
                 })
             });
@@ -958,19 +1086,15 @@ window.saveInlineEdit = async function(id) {
 window.deleteExpense = async function(id) {
     if (confirm(`¿Está seguro de que desea eliminar el registro de gasto ${id}?`)) {
         if (isLocalFile) {
-            // --- LOCAL FALLBACK ---
             expenses = expenses.filter(e => e.id !== id);
             saveExpensesToStorage();
             if (editingId === id) editingId = null;
-            
             renderDashboard();
             showToast(`Registro ${id} eliminado de LocalStorage.`, "info");
         } else {
-            // --- SERVER REST API ---
             try {
                 const response = await fetch(`${API_BASE_URL}/api/expenses/${id}`, {
-                    method: 'DELETE',
-                    headers: getAuthHeaders()
+                    method: 'DELETE'
                 });
                 
                 if (!response.ok) {
@@ -980,7 +1104,6 @@ window.deleteExpense = async function(id) {
                 
                 expenses = expenses.filter(e => e.id !== id);
                 if (editingId === id) editingId = null;
-                
                 renderDashboard();
                 showToast(`Registro ${id} eliminado con éxito.`, "info");
             } catch (error) {
@@ -1022,6 +1145,9 @@ function setupEventListeners() {
     
     const openModal = () => {
         document.getElementById("form-date").value = new Date().toISOString().substring(0, 10);
+        document.getElementById("form-amount-usd").value = "";
+        document.getElementById("form-amount-ves").value = "";
+        
         const formGroups = expenseForm.querySelectorAll(".form-group");
         formGroups.forEach(g => g.classList.remove("invalid"));
         modalOverlay.classList.remove("hidden");
@@ -1041,8 +1167,33 @@ function setupEventListeners() {
             closeModal();
         }
     });
+
+    const amountUsdInput = document.getElementById("form-amount-usd");
+    const amountVesInput = document.getElementById("form-amount-ves");
     
-    // 4. Modal Form Submit handler (Dual-Mode: Local vs Server creation)
+    if (amountUsdInput) {
+        amountUsdInput.addEventListener("input", (e) => {
+            const usdVal = parseFloat(e.target.value) || 0;
+            if (usdVal > 0) {
+                amountVesInput.value = (usdVal * ACTIVE_RATES.bcv).toFixed(2);
+            } else {
+                amountVesInput.value = "";
+            }
+        });
+    }
+    
+    if (amountVesInput) {
+        amountVesInput.addEventListener("input", (e) => {
+            const vesVal = parseFloat(e.target.value) || 0;
+            if (vesVal > 0) {
+                amountUsdInput.value = (vesVal / ACTIVE_RATES.bcv).toFixed(2);
+            } else {
+                amountUsdInput.value = "";
+            }
+        });
+    }
+    
+    // 4. Modal Form Submit handler (Dual-Mode)
     expenseForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         
@@ -1050,7 +1201,8 @@ function setupEventListeners() {
         const branchInput = document.getElementById("form-branch");
         const categoryInput = document.getElementById("form-category");
         const descInput = document.getElementById("form-description");
-        const amountInput = document.getElementById("form-amount");
+        const amountUsdInput = document.getElementById("form-amount-usd");
+        const amountVesInput = document.getElementById("form-amount-ves");
         const statusInputs = document.getElementsByName("form-status");
         
         let statusVal = "Pagado";
@@ -1068,13 +1220,15 @@ function setupEventListeners() {
         if (!categoryInput.value) { invalidateField(categoryInput); isValid = false; } else { validateField(categoryInput); }
         if (!descInput.value.trim()) { invalidateField(descInput); isValid = false; } else { validateField(descInput); }
         
-        const amountVal = parseFloat(amountInput.value);
-        if (isNaN(amountVal) || amountVal <= 0) { invalidateField(amountInput); isValid = false; } else { validateField(amountInput); }
+        const amountUsdVal = parseFloat(amountUsdInput.value);
+        if (isNaN(amountUsdVal) || amountUsdVal <= 0) { invalidateField(amountUsdInput); isValid = false; } else { validateField(amountUsdInput); }
+        
+        const amountVesVal = parseFloat(amountVesInput.value);
+        if (isNaN(amountVesVal) || amountVesVal <= 0) { invalidateField(amountVesInput); isValid = false; } else { validateField(amountVesInput); }
         
         if (!isValid) return;
         
         if (isLocalFile) {
-            // --- LOCAL FALLBACK ---
             const nextIdNumber = expenses.reduce((max, curr) => {
                 const num = parseInt(curr.id.split("-")[1]);
                 return num > max ? num : max;
@@ -1087,7 +1241,11 @@ function setupEventListeners() {
                 branch: branchInput.value,
                 category: categoryInput.value,
                 description: descInput.value.trim(),
-                amount: amountVal,
+                amount: amountUsdVal,
+                currency: "USD",
+                exchangeRate: 1.0,
+                amountUsd: amountUsdVal,
+                amountVes: amountVesVal,
                 status: statusVal
             };
             
@@ -1098,17 +1256,17 @@ function setupEventListeners() {
             closeModal();
             showToast(`Gasto ${newId} registrado con éxito en LocalStorage.`, "success");
         } else {
-            // --- SERVER REST API ---
             try {
                 const response = await fetch(`${API_BASE_URL}/api/expenses`, {
                     method: 'POST',
-                    headers: getAuthHeaders(),
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         date: dateInput.value,
                         branch: branchInput.value,
                         category: categoryInput.value,
                         description: descInput.value.trim(),
-                        amount: amountVal,
+                        amount: amountUsdVal,
+                        currency: "USD",
                         status: statusVal
                     })
                 });
@@ -1155,6 +1313,32 @@ function setupEventListeners() {
         
         window.print();
     });
+
+    // 6. Notifications Toggle Handler
+    const btnNotifications = document.getElementById("btn-notifications");
+    const notificationsDropdown = document.getElementById("notifications-dropdown");
+    
+    if (btnNotifications && notificationsDropdown) {
+        btnNotifications.addEventListener("click", (e) => {
+            e.stopPropagation();
+            notificationsDropdown.classList.toggle("hidden");
+        });
+        
+        document.addEventListener("click", (e) => {
+            if (!notificationsDropdown.contains(e.target) && e.target !== btnNotifications) {
+                notificationsDropdown.classList.add("hidden");
+            }
+        });
+        
+        const btnClearBadge = document.getElementById("btn-clear-notifications-badge");
+        if (btnClearBadge) {
+            btnClearBadge.addEventListener("click", (e) => {
+                e.stopPropagation();
+                notificationsDropdown.classList.add("hidden");
+                showToast("Para borrar las notificaciones, marque cada pago como 'Pagar'.", "info");
+            });
+        }
+    }
 }
 
 function invalidateField(inputEl) {
@@ -1162,13 +1346,231 @@ function invalidateField(inputEl) {
     if (parent) parent.classList.add("invalid");
 }
 
+// Renaming Sede
+window.saveSettingsBranch = async function(index) {
+    const input = document.getElementById(`edit-branch-input-${index}`);
+    const newName = input.value.trim();
+    const oldName = BRANCHES[index];
+    
+    if (!newName) return;
+    if (newName === oldName) {
+        cancelSettingsEdit();
+        return;
+    }
+    
+    if (isLocalFile) {
+        if (BRANCHES.includes(newName)) {
+            showToast("Error: Ya existe una sede con ese nombre.", "danger");
+            return;
+        }
+        expenses.forEach(exp => {
+            if (exp.branch === oldName) exp.branch = newName;
+        });
+        BRANCHES[index] = newName;
+        
+        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+        saveExpensesToStorage();
+        
+        editingSettingId = null;
+        populateDropdowns();
+        updateChartsStructure();
+        renderDashboard();
+        renderSettingsLists();
+        
+        showToast(`Sede renombrada a "${newName}" en LocalStorage.`, "success");
+    } else {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
+                method: 'PUT',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ oldName, newName })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo renombrar la sede.");
+            }
+            
+            const result = await response.json();
+            BRANCHES = result.branches;
+            expenses = result.expenses;
+            
+            editingSettingId = null;
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
+    }
+};
+
+// Renaming Categoría
+window.saveSettingsCategory = async function(index) {
+    const input = document.getElementById(`edit-category-input-${index}`);
+    const newName = input.value.trim();
+    const oldName = CATEGORIES[index];
+    
+    if (!newName) return;
+    if (newName === oldName) {
+        cancelSettingsEdit();
+        return;
+    }
+    
+    if (isLocalFile) {
+        if (CATEGORIES.includes(newName)) {
+            showToast("Error: Ya existe una categoría con ese nombre.", "danger");
+            return;
+        }
+        expenses.forEach(exp => {
+            if (exp.category === oldName) exp.category = newName;
+        });
+        CATEGORIES[index] = newName;
+        
+        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+        saveExpensesToStorage();
+        
+        editingSettingId = null;
+        populateDropdowns();
+        updateChartsStructure();
+        renderDashboard();
+        renderSettingsLists();
+        
+        showToast(`Categoría renombrada a "${newName}" en LocalStorage.`, "success");
+    } else {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
+                method: 'PUT',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ oldName, newName })
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo renombrar la categoría.");
+            }
+            
+            const result = await response.json();
+            CATEGORIES = result.categories;
+            expenses = result.expenses;
+            
+            editingSettingId = null;
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "danger");
+        }
+    }
+};
+
+// Deleting Sede
+window.deleteSettingsBranch = async function(index) {
+    const branchName = BRANCHES[index];
+    
+    if (isLocalFile) {
+        const associatedCount = expenses.filter(exp => exp.branch === branchName).length;
+        if (associatedCount > 0) {
+            showToast(`No se puede eliminar "${branchName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
+            return;
+        }
+        
+        if (confirm(`¿Está seguro de que desea eliminar la sede "${branchName}"?`)) {
+            BRANCHES.splice(index, 1);
+            localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede "${branchName}" eliminada de LocalStorage.`, "info");
+        }
+    } else {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/branches/${encodeURIComponent(branchName)}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar la sede.");
+            }
+            
+            BRANCHES = await response.json();
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Sede "${branchName}" eliminada correctamente.`, "info");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "warning");
+        }
+    }
+};
+
+// Deleting Categoría
+window.deleteSettingsCategory = async function(index) {
+    const catName = CATEGORIES[index];
+    
+    if (isLocalFile) {
+        const associatedCount = expenses.filter(exp => exp.category === catName).length;
+        if (associatedCount > 0) {
+            showToast(`No se puede eliminar la categoría "${catName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
+            return;
+        }
+        
+        if (confirm(`¿Está seguro de que desea eliminar la categoría "${catName}"?`)) {
+            CATEGORIES.splice(index, 1);
+            localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría "${catName}" eliminada de LocalStorage.`, "info");
+        }
+    } else {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/settings/categories/${encodeURIComponent(catName)}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || "No se pudo eliminar la categoría.");
+            }
+            
+            CATEGORIES = await response.json();
+            
+            populateDropdowns();
+            updateChartsStructure();
+            renderDashboard();
+            renderSettingsLists();
+            
+            showToast(`Categoría "${catName}" eliminada correctamente.`, "info");
+        } catch (error) {
+            showToast(`Error: ${error.message}`, "warning");
+        }
+    }
+};
+
 function validateField(inputEl) {
     const parent = inputEl.closest(".form-group");
     if (parent) parent.classList.remove("invalid");
 }
 
 // ============================================================================
-// SYSTEM PARAMETERS SETTINGS MODAL & LISTS (DUAL SYNC)
+// SYSTEM PARAMETERS SETTINGS MODAL & LISTS
 // ============================================================================
 
 function initSettingsModal() {
@@ -1179,26 +1581,18 @@ function initSettingsModal() {
     
     const openSettings = () => {
         editingSettingId = null;
-        renderSettingsLists();
         
-        // RBAC Tab filtering
-        const role = localStorage.getItem("user_role");
-        const tabBranches = document.getElementById("tab-branches");
-        const tabCategories = document.getElementById("tab-categories");
-        const tabUsers = document.getElementById("tab-users");
-        
-        if (role === "SEDE") {
-            if (tabBranches) tabBranches.classList.add("hidden");
-            if (tabCategories) tabCategories.classList.add("hidden");
-            if (tabUsers) tabUsers.classList.add("hidden");
-            switchSettingsTab('my-account');
-        } else {
-            if (tabBranches) tabBranches.classList.remove("hidden");
-            if (tabCategories) tabCategories.classList.remove("hidden");
-            if (tabUsers) tabUsers.classList.remove("hidden");
-            switchSettingsTab('branches');
+        const recBranchSelect = document.getElementById("new-rec-branch");
+        const recCatSelect = document.getElementById("new-rec-category");
+        if (recBranchSelect && recCatSelect) {
+            recBranchSelect.innerHTML = '<option value="" disabled selected>Sede...</option>' + 
+                BRANCHES.map(b => `<option value="${b}">${b}</option>`).join("");
+            recCatSelect.innerHTML = '<option value="" disabled selected>Categoría...</option>' + 
+                CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
         }
-        
+
+        renderSettingsLists();
+        switchSettingsTab('branches');
         settingsOverlay.classList.remove("hidden");
     };
     
@@ -1222,15 +1616,11 @@ function initSettingsModal() {
     
     document.getElementById("tab-branches").addEventListener("click", () => switchSettingsTab('branches'));
     document.getElementById("tab-categories").addEventListener("click", () => switchSettingsTab('categories'));
-    document.getElementById("tab-my-account").addEventListener("click", () => switchSettingsTab('my-account'));
-    document.getElementById("tab-users").addEventListener("click", () => switchSettingsTab('users'));
     
     const addBranchForm = document.getElementById("add-branch-form");
     const addCategoryForm = document.getElementById("add-category-form");
-    const myAccountForm = document.getElementById("my-account-form");
-    const createUserForm = document.getElementById("create-user-form");
     
-    // Add Branch (Dual Mode)
+    // Add Branch
     addBranchForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-branch-name");
@@ -1255,7 +1645,7 @@ function initSettingsModal() {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
                     method: 'POST',
-                    headers: getAuthHeaders(),
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name })
                 });
                 
@@ -1277,7 +1667,7 @@ function initSettingsModal() {
         }
     });
     
-    // Add Category (Dual Mode)
+    // Add Category
     addCategoryForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const input = document.getElementById("new-category-name");
@@ -1302,7 +1692,7 @@ function initSettingsModal() {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
                     method: 'POST',
-                    headers: getAuthHeaders(),
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name })
                 });
                 
@@ -1324,69 +1714,270 @@ function initSettingsModal() {
         }
     });
 
-    // Update Profile Form (My Account)
-    myAccountForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const username = document.getElementById("account-username").value.trim();
-        const password = document.getElementById("account-password").value;
+    // ==========================================
+    // RECURRING PAYMENTS CONFIGURATION EVENT HANDLERS
+    // ==========================================
+    document.getElementById("tab-recurring").addEventListener("click", () => switchSettingsTab('recurring'));
 
-        if (isLocalFile) {
-            localStorage.setItem("user_username", username);
-            showToast("Perfil actualizado localmente (Simulado).", "success");
-            document.getElementById("account-password").value = "";
-            initApp();
+    const addRecurringForm = document.getElementById("add-recurring-form");
+    
+    // Add recurring template
+    addRecurringForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const descInput = document.getElementById("new-rec-desc");
+        const dayInput = document.getElementById("new-rec-day");
+        const amountInput = document.getElementById("new-rec-amount");
+        const branchInput = document.getElementById("new-rec-branch");
+        const catInput = document.getElementById("new-rec-category");
+        
+        const description = descInput.value.trim();
+        const dayOfMonth = parseInt(dayInput.value);
+        const amount = parseFloat(amountInput.value);
+        const branch = branchInput.value;
+        const category = catInput.value;
+
+        if (!description || !dayOfMonth || isNaN(amount) || amount <= 0 || !branch || !category) {
+            showToast("Datos de mensualidad inválidos.", "danger");
             return;
         }
 
-        try {
-            const data = await safeFetchJson(`${API_BASE_URL}/api/auth/profile`, {
-                method: 'PUT',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ username, password })
-            });
-
-            localStorage.setItem("auth_token", data.token);
-            localStorage.setItem("user_username", data.user.username);
+        if (isLocalFile) {
+            const newTemplate = {
+                id: 'rec-' + Date.now(),
+                description,
+                dayOfMonth,
+                amount,
+                branch,
+                category
+            };
+            RECURRING_TEMPLATES.push(newTemplate);
+            localStorage.setItem("recurring_templates", JSON.stringify(RECURRING_TEMPLATES));
             
-            showToast("Perfil actualizado exitosamente.", "success");
-            document.getElementById("account-password").value = "";
-            initApp();
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            // Clean inputs
+            descInput.value = "";
+            dayInput.value = "";
+            amountInput.value = "";
+            branchInput.selectedIndex = 0;
+            catInput.selectedIndex = 0;
+
+            // Generate immediately
+            generateLocalRecurringExpenses();
+            
+            renderDashboard();
+            renderSettingsLists();
+            showToast(`Mensualidad "${description}" programada localmente.`, "success");
+        } else {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/settings/recurring`, {
+                    method: 'POST',
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ description, dayOfMonth, amount, branch, category })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "No se pudo registrar la mensualidad.");
+                }
+
+                RECURRING_TEMPLATES = await response.json();
+                
+                // Clean inputs
+                descInput.value = "";
+                dayInput.value = "";
+                amountInput.value = "";
+                branchInput.selectedIndex = 0;
+                catInput.selectedIndex = 0;
+
+                // Reload expenses data to get newly auto-generated transactions
+                await loadExpenses();
+                
+                renderDashboard();
+                renderSettingsLists();
+                showToast(`Mensualidad "${description}" programada con éxito.`, "success");
+            } catch (error) {
+                showToast(`Error: ${error.message}`, "danger");
+            }
         }
     });
 
-    // Create User Form (Admin only)
-    createUserForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const username = document.getElementById("new-user-username").value.trim();
-        const password = document.getElementById("new-user-password").value;
-        const branch = document.getElementById("new-user-branch").value;
+    window.deleteRecurringTemplate = async function(id) {
+        if (confirm("¿Está seguro de que desea eliminar esta mensualidad programada?")) {
+            if (isLocalFile) {
+                RECURRING_TEMPLATES = RECURRING_TEMPLATES.filter(t => t.id !== id);
+                localStorage.setItem("recurring_templates", JSON.stringify(RECURRING_TEMPLATES));
+                renderSettingsLists();
+                showToast("Mensualidad eliminada localmente.", "info");
+            } else {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/settings/recurring/${id}`, {
+                        method: 'DELETE'
+                    });
 
-        if (isLocalFile) {
-            showToast("Simulación: Usuario de sede creado localmente.", "success");
-            createUserForm.reset();
-            return;
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.error || "No se pudo eliminar la mensualidad.");
+                    }
+
+                    RECURRING_TEMPLATES = await response.json();
+                    renderSettingsLists();
+                    showToast("Mensualidad eliminada correctamente.", "info");
+                } catch (error) {
+                    showToast(`Error: ${error.message}`, "danger");
+                }
+            }
         }
+    };
 
+    // ==========================================
+    // BACKUP & RESTORE EVENT HANDLERS
+    // ==========================================
+    document.getElementById("tab-backup").addEventListener("click", () => switchSettingsTab('backup'));
+
+    const btnExportBackup = document.getElementById("btn-export-backup");
+    const btnTriggerImport = document.getElementById("btn-trigger-import");
+    const importBackupFile = document.getElementById("import-backup-file");
+
+    // Export Backup
+    btnExportBackup.addEventListener("click", async () => {
         try {
-            await safeFetchJson(`${API_BASE_URL}/api/settings/users`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ username, password, role: "SEDE", branch })
-            });
+            let backupData;
+            if (isLocalFile) {
+                // LocalStorage Mode
+                backupData = {
+                    version: "1.2",
+                    exportedAt: new Date().toISOString(),
+                    expenses: expenses,
+                    branches: BRANCHES,
+                    categories: CATEGORIES,
+                    rates: ACTIVE_RATES,
+                    recurring: RECURRING_TEMPLATES
+                };
+            } else {
+                // Server Mode
+                backupData = await safeFetchJson(`${API_BASE_URL}/api/backup`);
+            }
 
-            showToast(`Usuario "${username}" creado exitosamente para la sede "${branch}".`, "success");
-            createUserForm.reset();
-            loadAndRenderUsers();
+            // Trigger Browser Download
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+            const downloadAnchor = document.createElement('a');
+            const todayStr = new Date().toISOString().split('T')[0];
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `respaldo_gastos_${todayStr}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+
+            showToast("Copia de seguridad exportada con éxito.", "success");
         } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
+            showToast(`Error al exportar respaldo: ${error.message}`, "danger");
         }
+    });
+
+    // Trigger file picker
+    btnTriggerImport.addEventListener("click", () => {
+        importBackupFile.click();
+    });
+
+    // Handle file selection and import
+    importBackupFile.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const backup = JSON.parse(event.target.result);
+
+                // Validation
+                if (!backup.expenses || !Array.isArray(backup.expenses) ||
+                    !backup.branches || !Array.isArray(backup.branches) ||
+                    !backup.categories || !Array.isArray(backup.categories)) {
+                    throw new Error("El archivo no tiene el formato de respaldo válido.");
+                }
+
+                const confirmRestore = confirm("¿Está seguro de que desea restaurar los datos? Esta acción eliminará permanentemente todos los gastos, sedes y categorías registrados actualmente en el sistema.");
+                if (!confirmRestore) {
+                    importBackupFile.value = ""; // Reset input
+                    return;
+                }
+
+                if (isLocalFile) {
+                    // LocalStorage Mode
+                    expenses = backup.expenses;
+                    BRANCHES = backup.branches;
+                    CATEGORIES = backup.categories;
+                    if (backup.rates) {
+                        ACTIVE_RATES = backup.rates;
+                        localStorage.setItem("exchange_rates", JSON.stringify(ACTIVE_RATES));
+                    }
+                    if (backup.recurring) {
+                        RECURRING_TEMPLATES = backup.recurring;
+                        localStorage.setItem("recurring_templates", JSON.stringify(RECURRING_TEMPLATES));
+                    }
+
+                    localStorage.setItem("expenses_data", JSON.stringify(expenses));
+                    localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
+                    localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
+
+                    // Refresh rates on DOM
+                    loadRates();
+                    
+                    // Refresh UI
+                    populateDropdowns();
+                    updateChartsStructure();
+                    renderDashboard();
+                    renderSettingsLists();
+                    closeSettings();
+
+                    showToast("Datos restaurados correctamente en LocalStorage.", "success");
+                } else {
+                    // Server Mode
+                    const response = await fetch(`${API_BASE_URL}/api/backup/restore`, {
+                        method: 'POST',
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(backup)
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.error || "No se pudo restaurar el respaldo en el servidor.");
+                    }
+
+                    const result = await response.json();
+                    expenses = result.expenses;
+                    BRANCHES = result.branches;
+                    CATEGORIES = result.categories;
+                    if (result.rates) {
+                        ACTIVE_RATES = result.rates;
+                    }
+                    if (result.recurring) {
+                        RECURRING_TEMPLATES = result.recurring;
+                    }
+
+                    // Refresh rates on DOM
+                    await loadRates();
+
+                    // Refresh UI
+                    populateDropdowns();
+                    updateChartsStructure();
+                    renderDashboard();
+                    renderSettingsLists();
+                    closeSettings();
+
+                    showToast("Datos restaurados correctamente en el servidor.", "success");
+                }
+            } catch (err) {
+                showToast(`Error al restaurar: ${err.message}`, "danger");
+            } finally {
+                importBackupFile.value = ""; // Reset input
+            }
+        };
+        reader.readAsText(file);
     });
 }
 
 function switchSettingsTab(tabName) {
-    const tabs = ['branches', 'categories', 'my-account', 'users'];
+    const tabs = ['branches', 'categories', 'backup', 'recurring'];
     tabs.forEach(t => {
         const tabBtn = document.getElementById(`tab-${t}`);
         const tabContent = document.getElementById(`content-${t}`);
@@ -1398,94 +1989,6 @@ function switchSettingsTab(tabName) {
             if (tabContent) tabContent.classList.add("hidden");
         }
     });
-
-    if (tabName === 'my-account') {
-        const currentUsername = localStorage.getItem("user_username") || "admin";
-        document.getElementById("account-username").value = currentUsername;
-    } else if (tabName === 'users') {
-        const userBranchSelect = document.getElementById("new-user-branch");
-        if (userBranchSelect) {
-            userBranchSelect.innerHTML = '<option value="" disabled selected>Seleccione sede...</option>' +
-                BRANCHES.map(b => `<option value="${b}">${b}</option>`).join("");
-        }
-        loadAndRenderUsers();
-    }
-}
-
-async function loadAndRenderUsers() {
-    const userList = document.getElementById("settings-users-list");
-    if (!userList) return;
-    userList.innerHTML = "<li style='padding: 8px 12px; color: var(--text-secondary);'>Cargando usuarios...</li>";
-
-    if (isLocalFile) {
-        userList.innerHTML = `
-            <li class="settings-item">
-                <span class="settings-item-text">admin (ADMIN)</span>
-                <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">(Tú)</span>
-            </li>
-            <li class="settings-item">
-                <span class="settings-item-text">sede_norte (SEDE - Sede Norte)</span>
-                <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Simulado</span>
-            </li>
-        `;
-        return;
-    }
-
-    try {
-        const users = await safeFetchJson(`${API_BASE_URL}/api/settings/users`, {
-            headers: getAuthHeaders()
-        });
-
-        userList.innerHTML = "";
-        const currentUser = localStorage.getItem("user_username");
-
-        users.forEach(user => {
-            const li = document.createElement("li");
-            li.className = "settings-item";
-            
-            const isSelf = user.username === currentUser;
-            const branchText = user.branch ? ` - ${user.branch}` : "";
-            
-            li.innerHTML = `
-                <span class="settings-item-text" style="font-weight: 500;">
-                    ${user.username} <span style="font-size: 0.8rem; color: var(--text-secondary);">(${user.role}${branchText})</span>
-                </span>
-                <div class="settings-item-actions">
-                    ${isSelf ? '<span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">(Tú)</span>' : `
-                        <button class="btn-icon delete" onclick="deleteUser(${user.id}, '${user.username}')" title="Eliminar usuario">
-                            <i data-lucide="trash-2"></i>
-                        </button>
-                    `}
-                </div>
-            `;
-            userList.appendChild(li);
-        });
-
-        lucide.createIcons();
-    } catch (error) {
-        userList.innerHTML = `<li style='padding: 8px 12px; color: var(--danger);'>Error: ${error.message}</li>`;
-    }
-}
-
-window.deleteUser = async function(id, username) {
-    if (confirm(`¿Estás seguro de que deseas eliminar la cuenta de "${username}"?`)) {
-        if (isLocalFile) {
-            showToast("Acción de simulación: usuario eliminado localmente.", "info");
-            return;
-        }
-
-        try {
-            await safeFetchJson(`${API_BASE_URL}/api/settings/users/${id}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders()
-            });
-
-            showToast(`Usuario "${username}" eliminado correctamente.`, "info");
-            loadAndRenderUsers();
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
-        }
-    }
 }
 
 function renderSettingsLists() {
@@ -1558,244 +2061,30 @@ function renderSettingsLists() {
         }
         categoryList.appendChild(li);
     });
+
+    // Render Recurring Payments List
+    const recurringList = document.getElementById("settings-recurring-list");
+    if (recurringList) {
+        recurringList.innerHTML = "";
+        RECURRING_TEMPLATES.forEach(t => {
+            const li = document.createElement("li");
+            li.className = "settings-item";
+            li.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
+                    <span class="settings-item-text" style="font-weight: 600;">${t.description}</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">
+                        Día ${t.dayOfMonth} | Sede: ${t.branch} | Cat: ${t.category} | <strong>$${t.amount.toFixed(2)}</strong>
+                    </span>
+                </div>
+                <div class="settings-item-actions">
+                    <button class="btn-icon delete" onclick="deleteRecurringTemplate('${t.id}')" title="Eliminar mensualidad">
+                        <i data-lucide="trash-2"></i>
+                    </button>
+                </div>
+            `;
+            recurringList.appendChild(li);
+        });
+    }
     
     lucide.createIcons();
 }
-
-window.startSettingsEdit = function(type, index) {
-    editingSettingId = `${type}-${index}`;
-    renderSettingsLists();
-};
-
-window.cancelSettingsEdit = function() {
-    editingSettingId = null;
-    renderSettingsLists();
-};
-
-// Renaming Sede (Dual-Mode cascade)
-window.saveSettingsBranch = async function(index) {
-    const input = document.getElementById(`edit-branch-input-${index}`);
-    const newName = input.value.trim();
-    const oldName = BRANCHES[index];
-    
-    if (!newName) return;
-    if (newName === oldName) {
-        cancelSettingsEdit();
-        return;
-    }
-    
-    if (isLocalFile) {
-        // --- LOCAL FALLBACK ---
-        if (BRANCHES.includes(newName)) {
-            showToast("Error: Ya existe una sede con ese nombre.", "danger");
-            return;
-        }
-        expenses.forEach(exp => {
-            if (exp.branch === oldName) exp.branch = newName;
-        });
-        BRANCHES[index] = newName;
-        
-        localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
-        saveExpensesToStorage();
-        
-        editingSettingId = null;
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        
-        showToast(`Sede renombrada a "${newName}" en LocalStorage.`, "success");
-    } else {
-        // --- SERVER REST API ---
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/branches`, {
-                method: 'PUT',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ oldName, newName })
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo renombrar la sede.");
-            }
-            
-            const result = await response.json();
-            BRANCHES = result.branches;
-            expenses = result.expenses;
-            
-            editingSettingId = null;
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Sede renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
-        }
-    }
-};
-
-// Renaming Categoría (Dual-Mode cascade)
-window.saveSettingsCategory = async function(index) {
-    const input = document.getElementById(`edit-category-input-${index}`);
-    const newName = input.value.trim();
-    const oldName = CATEGORIES[index];
-    
-    if (!newName) return;
-    if (newName === oldName) {
-        cancelSettingsEdit();
-        return;
-    }
-    
-    if (isLocalFile) {
-        // --- LOCAL FALLBACK ---
-        if (CATEGORIES.includes(newName)) {
-            showToast("Error: Ya existe una categoría con ese nombre.", "danger");
-            return;
-        }
-        expenses.forEach(exp => {
-            if (exp.category === oldName) exp.category = newName;
-        });
-        CATEGORIES[index] = newName;
-        
-        localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
-        saveExpensesToStorage();
-        
-        editingSettingId = null;
-        populateDropdowns();
-        updateChartsStructure();
-        renderDashboard();
-        renderSettingsLists();
-        
-        showToast(`Categoría renombrada a "${newName}" en LocalStorage.`, "success");
-    } else {
-        // --- SERVER REST API ---
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/categories`, {
-                method: 'PUT',
-                headers: getAuthHeaders(),
-                body: JSON.stringify({ oldName, newName })
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo renombrar la categoría.");
-            }
-            
-            const result = await response.json();
-            CATEGORIES = result.categories;
-            expenses = result.expenses;
-            
-            editingSettingId = null;
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Categoría renombrada de "${oldName}" a "${newName}" con éxito.`, "success");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "danger");
-        }
-    }
-};
-
-// Deleting Sede (Dual-Mode check)
-window.deleteSettingsBranch = async function(index) {
-    const branchName = BRANCHES[index];
-    
-    if (isLocalFile) {
-        // --- LOCAL FALLBACK ---
-        const associatedCount = expenses.filter(exp => exp.branch === branchName).length;
-        if (associatedCount > 0) {
-            showToast(`No se puede eliminar "${branchName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
-            return;
-        }
-        
-        if (confirm(`¿Está seguro de que desea eliminar la sede "${branchName}"?`)) {
-            BRANCHES.splice(index, 1);
-            localStorage.setItem("branches_data", JSON.stringify(BRANCHES));
-            
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Sede "${branchName}" eliminada de LocalStorage.`, "info");
-        }
-    } else {
-        // --- SERVER REST API ---
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/branches/${encodeURIComponent(branchName)}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders()
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo eliminar la sede.");
-            }
-            
-            BRANCHES = await response.json();
-            
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Sede "${branchName}" eliminada correctamente.`, "info");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "warning");
-        }
-    }
-};
-
-// Deleting Categoría (Dual-Mode check)
-window.deleteSettingsCategory = async function(index) {
-    const catName = CATEGORIES[index];
-    
-    if (isLocalFile) {
-        // --- LOCAL FALLBACK ---
-        const associatedCount = expenses.filter(exp => exp.category === catName).length;
-        if (associatedCount > 0) {
-            showToast(`No se puede eliminar la categoría "${catName}" porque tiene ${associatedCount} transacciones asociadas.`, "warning");
-            return;
-        }
-        
-        if (confirm(`¿Está seguro de que desea eliminar la categoría "${catName}"?`)) {
-            CATEGORIES.splice(index, 1);
-            localStorage.setItem("categories_data", JSON.stringify(CATEGORIES));
-            
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Categoría "${catName}" eliminada de LocalStorage.`, "info");
-        }
-    } else {
-        // --- SERVER REST API ---
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/settings/categories/${encodeURIComponent(catName)}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders()
-            });
-            
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || "No se pudo eliminar la categoría.");
-            }
-            
-            CATEGORIES = await response.json();
-            
-            populateDropdowns();
-            updateChartsStructure();
-            renderDashboard();
-            renderSettingsLists();
-            
-            showToast(`Categoría "${catName}" eliminada correctamente.`, "info");
-        } catch (error) {
-            showToast(`Error: ${error.message}`, "warning");
-        }
-    }
-};

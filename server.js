@@ -3,13 +3,10 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'gasto_corp_super_secret_key_987';
 
 // Middleware
 app.use(cors());
@@ -19,25 +16,119 @@ app.use(express.static(__dirname)); // Serves index.html, styles.css, app.js dir
 // Seed Data
 const DEFAULT_BRANCHES = ["Sede Norte", "Sede Sur", "Sede Este", "Sede Oeste"];
 const DEFAULT_CATEGORIES = ["Servicios", "Nómina", "Proveedores", "Mantenimiento", "Tecnología", "Marketing"];
-const DEFAULT_EXPENSES = [
-    { id: "EXP-101", date: "2026-05-10", branch: "Sede Norte", category: "Nómina", description: "Nómina quincenal de personal operativo", amount: 4850.00, status: "Pagado" },
-    { id: "EXP-102", date: "2026-05-12", branch: "Sede Sur", category: "Servicios", description: "Consumo eléctrico oficinas administrativas - Abril", amount: 385.50, status: "Pagado" },
-    { id: "EXP-103", date: "2026-05-15", branch: "Sede Este", category: "Proveedores", description: "Compra de suministros y consumibles de oficina", amount: 890.00, status: "Pendiente" },
-    { id: "EXP-104", date: "2026-05-18", branch: "Sede Oeste", category: "Mantenimiento", description: "Mantenimiento preventivo de aire acondicionado central", amount: 1250.00, status: "Pagado" },
-    { id: "EXP-105", date: "2026-05-20", branch: "Sede Norte", category: "Tecnología", description: "Suscripción anual a licencias ERP en la nube", amount: 2400.00, status: "Pendiente" },
-    { id: "EXP-106", date: "2026-05-22", branch: "Sede Sur", category: "Marketing", description: "Campaña publicitaria Google Ads & Redes Sociales", amount: 1500.00, status: "Pagado" },
-    { id: "EXP-107", date: "2026-05-24", branch: "Sede Oeste", category: "Proveedores", description: "Servicio externo de mensajería y distribución", amount: 620.00, status: "Pagado" },
-    { id: "EXP-108", date: "2026-05-25", branch: "Sede Este", category: "Servicios", description: "Servicio de internet simétrico y telefonía VoIP", amount: 180.00, status: "Pagado" }
-];
+
+// Helper to fetch rates from external APIs (DolarApi & CriptoYa)
+async function fetchVenezuelaRates() {
+    try {
+        console.log("Fetching live rates from external APIs...");
+        // Fetch Dollar BCV (oficial) and Parallel
+        const dollarsRes = await fetch('https://ve.dolarapi.com/v1/dolares');
+        const dollars = await dollarsRes.json();
+        
+        // Fetch Euro BCV
+        const eurosRes = await fetch('https://ve.dolarapi.com/v1/euros');
+        const euros = await eurosRes.json();
+        
+        // Fetch USDT from CriptoYa (Binance P2P)
+        const usdtRes = await fetch('https://criptoya.com/api/binancep2p/USDT/VES/1');
+        const usdtData = await usdtRes.json();
+        
+        // Parse results
+        const bcv = dollars.find(d => d.fuente === 'oficial')?.promedio || 40.0;
+        const paralelo = dollars.find(d => d.fuente === 'paralelo')?.promedio || 40.0;
+        const euro = euros.find(e => e.fuente === 'oficial')?.promedio || 45.0;
+        const usdt = usdtData?.ask || 40.0;
+        
+        console.log(`Live rates: BCV=${bcv}, Parallel=${paralelo}, Euro=${euro}, USDT=${usdt}`);
+        
+        const rates = await prisma.exchangeRate.upsert({
+            where: { id: "latest" },
+            update: { bcv, paralelo, euro, usdt },
+            create: { id: "latest", bcv, paralelo, euro, usdt }
+        });
+        
+        return rates;
+    } catch (error) {
+        console.error("Error fetching rates from external APIs:", error);
+        // Fallback to database
+        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } });
+        return rates || { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 };
+    }
+}
+
+// Automatically generate recurring expenses for the current month if not yet generated
+async function generateRecurringExpenses() {
+    try {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+        const currentDay = today.getDate();
+        
+        const templates = await prisma.recurringPayment.findMany();
+        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } }) || { bcv: 40.0 };
+        const monthPrefix = `${currentYear}-${currentMonth}`;
+
+        for (const template of templates) {
+            if (currentDay >= template.dayOfMonth) {
+                const scheduledDayStr = String(template.dayOfMonth).padStart(2, '0');
+                const scheduledDate = `${monthPrefix}-${scheduledDayStr}`;
+
+                const existing = await prisma.expense.findFirst({
+                    where: {
+                        description: template.description,
+                        category: template.category,
+                        date: {
+                            startsWith: monthPrefix
+                        }
+                    }
+                });
+
+                if (!existing) {
+                    const allExpenses = await prisma.expense.findMany({ select: { id: true } });
+                    const nextIdNumber = allExpenses.reduce((max, curr) => {
+                        const parts = curr.id.split("-");
+                        if (parts.length === 2) {
+                            const num = parseInt(parts[1]);
+                            if (!isNaN(num)) return num > max ? num : max;
+                        }
+                        return max;
+                    }, 100) + 1;
+                    const newId = `EXP-${nextIdNumber}`;
+
+                    const amountUsd = template.amount;
+                    const amountVes = amountUsd * rates.bcv;
+
+                    await prisma.expense.create({
+                        data: {
+                            id: newId,
+                            date: scheduledDate,
+                            branch: template.branch,
+                            category: template.category,
+                            description: template.description,
+                            amount: amountUsd,
+                            currency: "USD",
+                            exchangeRate: 1.0,
+                            amountUsd: amountUsd,
+                            amountVes: amountVes,
+                            status: "Pendiente"
+                        }
+                    });
+                    console.log(`Auto-generated recurring expense: ${template.description} (${newId})`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error auto-generating recurring expenses:", error);
+    }
+}
 
 // Seeding function
 async function seedIfNeeded() {
     try {
         const branchCount = await prisma.branch.count();
         const categoryCount = await prisma.category.count();
-        const expenseCount = await prisma.expense.count();
-        const userCount = await prisma.user.count();
         const rateCount = await prisma.exchangeRate.count();
+        const templateCount = await prisma.recurringPayment.count();
 
         if (branchCount === 0) {
             console.log("Seeding default branches...");
@@ -53,38 +144,22 @@ async function seedIfNeeded() {
             });
         }
 
-        if (userCount === 0) {
-            console.log("Seeding default admin user...");
-            const hashedPassword = await bcrypt.hash("admin123", 10);
-            await prisma.user.create({
-                data: {
-                    username: "admin",
-                    password: hashedPassword,
-                    role: "ADMIN"
-                }
-            });
-        }
-
         if (rateCount === 0) {
             console.log("Seeding default exchange rates...");
-            await prisma.exchangeRate.create({
-                data: {
-                    id: "latest",
-                    vesRate: 40.0,
-                    eurRate: 0.92
-                }
-            });
+            await fetchVenezuelaRates();
         }
 
-        if (expenseCount === 0) {
-            console.log("Seeding default expenses...");
-            await prisma.expense.createMany({
-                data: DEFAULT_EXPENSES.map(e => ({
-                    ...e,
-                    currency: "USD",
-                    exchangeRate: 1.0,
-                    amountUsd: e.amount
-                }))
+        if (templateCount === 0) {
+            console.log("Seeding default recurring templates...");
+            await prisma.recurringPayment.create({
+                data: {
+                    id: "default-condominio",
+                    description: "Pago de Condominio - Mensualidad",
+                    dayOfMonth: 5,
+                    amount: 120.00,
+                    branch: "Sede Norte",
+                    category: "Servicios"
+                }
             });
         }
     } catch (error) {
@@ -93,249 +168,25 @@ async function seedIfNeeded() {
 }
 
 // ============================================================================
-// AUTH MIDDLEWARES
-// ============================================================================
-
-function authenticateJWT(req, res, next) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-        return res.status(401).json({ error: "Token de autenticación no provisto." });
-    }
-
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-        return res.status(401).json({ error: "Formato de token inválido." });
-    }
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) {
-            return res.status(403).json({ error: "Token inválido o expirado." });
-        }
-        req.user = user;
-        next();
-    });
-}
-
-function requireAdmin(req, res, next) {
-    if (!req.user || req.user.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Acceso denegado. Se requieren privilegios de Administrador." });
-    }
-    next();
-}
-
-// ============================================================================
-// AUTH & USER ENDPOINTS
-// ============================================================================
-
-// 1. Login user
-app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: "Usuario y contraseña requeridos." });
-    }
-
-    try {
-        const user = await prisma.user.findUnique({ where: { username } });
-        if (!user) {
-            return res.status(401).json({ error: "Credenciales incorrectas." });
-        }
-
-        const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword) {
-            return res.status(401).json({ error: "Credenciales incorrectas." });
-        }
-
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role, branch: user.branch },
-            JWT_SECRET,
-            { expiresIn: '8h' }
-        );
-
-        res.json({
-            token,
-            user: {
-                username: user.username,
-                role: user.role,
-                branch: user.branch
-            }
-        });
-    } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ error: "Error interno en el inicio de sesión." });
-    }
-});
-
-// 2. Get current user profile
-app.get('/api/auth/me', authenticateJWT, (req, res) => {
-    res.json({ user: req.user });
-});
-
-// 3. Create user account (Admin only)
-app.post('/api/settings/users', authenticateJWT, requireAdmin, async (req, res) => {
-    const { username, password, role, branch } = req.body;
-
-    if (!username || !password || !role) {
-        return res.status(400).json({ error: "Datos de usuario incompletos." });
-    }
-
-    if (role !== "ADMIN" && role !== "SEDE") {
-        return res.status(400).json({ error: "Rol inválido. Debe ser 'ADMIN' o 'SEDE'." });
-    }
-
-    if (role === "SEDE" && (!branch || branch.trim() === "")) {
-        return res.status(400).json({ error: "Las cuentas de sede deben tener una sede asignada." });
-    }
-
-    try {
-        const existing = await prisma.user.findUnique({ where: { username } });
-        if (existing) {
-            return res.status(400).json({ error: "El nombre de usuario ya está registrado." });
-        }
-
-        // Verify branch exists if role is SEDE
-        if (role === "SEDE") {
-            const dbBranch = await prisma.branch.findUnique({ where: { name: branch } });
-            if (!dbBranch) {
-                return res.status(400).json({ error: `La sede '${branch}' no existe. Regístrala primero.` });
-            }
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = await prisma.user.create({
-            data: {
-                username,
-                password: hashedPassword,
-                role,
-                branch: role === "SEDE" ? branch : null
-            }
-        });
-
-        res.status(201).json({
-            message: "Usuario creado exitosamente.",
-            user: {
-                id: newUser.id,
-                username: newUser.username,
-                role: newUser.role,
-                branch: newUser.branch
-            }
-        });
-    } catch (error) {
-        console.error("Error creating user:", error);
-        res.status(500).json({ error: "Error interno del servidor al crear el usuario." });
-    }
-});
-
-// 4. Update current user profile (username / password)
-app.put('/api/auth/profile', authenticateJWT, async (req, res) => {
-    const { username, password } = req.body;
-    const userId = req.user.id;
-
-    try {
-        const updateData = {};
-        if (username && username.trim() !== "") {
-            const trimmedUsername = username.trim();
-            if (trimmedUsername !== req.user.username) {
-                const existing = await prisma.user.findUnique({ where: { username: trimmedUsername } });
-                if (existing) {
-                    return res.status(400).json({ error: "El nombre de usuario ya está en uso." });
-                }
-            }
-            updateData.username = trimmedUsername;
-        }
-
-        if (password && password.trim() !== "") {
-            updateData.password = await bcrypt.hash(password, 10);
-        }
-
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({ error: "No se enviaron datos para actualizar." });
-        }
-
-        const updatedUser = await prisma.user.update({
-            where: { id: userId },
-            data: updateData
-        });
-
-        const token = jwt.sign(
-            { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role, branch: updatedUser.branch },
-            JWT_SECRET,
-            { expiresIn: '8h' }
-        );
-
-        res.json({
-            message: "Perfil actualizado correctamente.",
-            token,
-            user: {
-                username: updatedUser.username,
-                role: updatedUser.role,
-                branch: updatedUser.branch
-            }
-        });
-    } catch (error) {
-        console.error("Profile update error:", error);
-        res.status(500).json({ error: "Error al actualizar el perfil." });
-    }
-});
-
-// 5. Get all users list (Admin only)
-app.get('/api/settings/users', authenticateJWT, requireAdmin, async (req, res) => {
-    try {
-        const users = await prisma.user.findMany({
-            select: {
-                id: true,
-                username: true,
-                role: true,
-                branch: true,
-                createdAt: true
-            }
-        });
-        res.json(users);
-    } catch (error) {
-        console.error("Error listing users:", error);
-        res.status(500).json({ error: "Error al listar los usuarios." });
-    }
-});
-
-// 6. Delete user account (Admin only)
-app.delete('/api/settings/users/:id', authenticateJWT, requireAdmin, async (req, res) => {
-    const userId = parseInt(req.params.id);
-    if (isNaN(userId)) {
-        return res.status(400).json({ error: "ID de usuario inválido." });
-    }
-
-    if (userId === req.user.id) {
-        return res.status(400).json({ error: "No puedes eliminar tu propia cuenta de administrador." });
-    }
-
-    try {
-        await prisma.user.delete({ where: { id: userId } });
-        res.json({ message: "Usuario eliminado correctamente." });
-    } catch (error) {
-        console.error("Error deleting user:", error);
-        res.status(500).json({ error: "Error al eliminar el usuario." });
-    }
-});
-
-// ============================================================================
-// EXCHANGE RATE ENDPOINTS
+// EXCHANGE RATE ENDPOINTS (PUBLIC)
 // ============================================================================
 
 // Get Exchange Rates
-app.get('/api/settings/rates', authenticateJWT, async (req, res) => {
+app.get('/api/settings/rates', async (req, res) => {
     try {
-        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } });
-        res.json(rates || { vesRate: 40.0, eurRate: 0.92 });
+        const rates = await fetchVenezuelaRates();
+        res.json(rates);
     } catch (error) {
         console.error("Error getting exchange rates:", error);
         res.status(500).json({ error: "Error al obtener las tasas de cambio." });
     }
 });
 
-// Update Exchange Rates (Admin only)
-app.put('/api/settings/rates', authenticateJWT, requireAdmin, async (req, res) => {
-    const { vesRate, eurRate } = req.body;
+// Update Exchange Rates manually
+app.put('/api/settings/rates', async (req, res) => {
+    const { bcv, paralelo, euro, usdt } = req.body;
     
-    if (isNaN(vesRate) || vesRate <= 0 || isNaN(eurRate) || eurRate <= 0) {
+    if (isNaN(bcv) || bcv <= 0 || isNaN(paralelo) || paralelo <= 0 || isNaN(euro) || euro <= 0 || isNaN(usdt) || usdt <= 0) {
         return res.status(400).json({ error: "Tasas de cambio inválidas. Deben ser mayores a cero." });
     }
 
@@ -343,20 +194,19 @@ app.put('/api/settings/rates', authenticateJWT, requireAdmin, async (req, res) =
         const rates = await prisma.exchangeRate.upsert({
             where: { id: "latest" },
             update: {
-                vesRate: parseFloat(vesRate),
-                eurRate: parseFloat(eurRate)
+                bcv: parseFloat(bcv),
+                paralelo: parseFloat(paralelo),
+                euro: parseFloat(euro),
+                usdt: parseFloat(usdt)
             },
             create: {
                 id: "latest",
-                vesRate: parseFloat(vesRate),
-                eurRate: parseFloat(eurRate)
+                bcv: parseFloat(bcv),
+                paralelo: parseFloat(paralelo),
+                euro: parseFloat(euro),
+                usdt: parseFloat(usdt)
             }
         });
-
-        // Update amountUsd of all historical expenses? No, the instructions say:
-        // "cada gasto registre el monto, la moneda seleccionada (VES, USD, o EUR) y la tasa de cambio que estaba activa en el momento de la transacción."
-        // This implies historical expenses keep their rate. Only new transactions get the new rate. So we don't recalculate past expenses.
-        
         res.json(rates);
     } catch (error) {
         console.error("Error updating exchange rates:", error);
@@ -365,31 +215,143 @@ app.put('/api/settings/rates', authenticateJWT, requireAdmin, async (req, res) =
 });
 
 // ============================================================================
-// API ENDPOINTS (PROTECTED BY JWT)
+// BACKUP & RESTORE ENDPOINTS (PUBLIC)
 // ============================================================================
 
-// 1. Get all database data (with RBAC filtering)
-app.get('/api/data', authenticateJWT, async (req, res) => {
+// Get complete database backup
+app.get('/api/backup', async (req, res) => {
     try {
-        const isSede = req.user.role === 'SEDE';
-        
-        // Filter expenses
-        const expenses = await prisma.expense.findMany({
-            where: isSede ? { branch: req.user.branch } : undefined
-        });
-
-        // Filter branches
+        const expenses = await prisma.expense.findMany();
         const dbBranches = await prisma.branch.findMany();
-        const filteredBranches = isSede 
-            ? dbBranches.filter(b => b.name === req.user.branch)
-            : dbBranches;
-
         const dbCategories = await prisma.category.findMany();
+        const dbRecurring = await prisma.recurringPayment.findMany();
+        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } });
+
+        res.json({
+            version: "1.2",
+            exportedAt: new Date().toISOString(),
+            expenses: expenses,
+            branches: dbBranches.map(b => b.name),
+            categories: dbCategories.map(c => c.name),
+            recurring: dbRecurring,
+            rates: rates || { bcv: 40.0, paralelo: 40.0, euro: 45.0, usdt: 40.0 }
+        });
+    } catch (error) {
+        console.error("Error creating backup:", error);
+        res.status(500).json({ error: "Error al generar la copia de seguridad." });
+    }
+});
+
+// Restore database from backup
+app.post('/api/backup/restore', async (req, res) => {
+    const { expenses, branches, categories, rates, recurring } = req.body;
+
+    if (!Array.isArray(expenses) || !Array.isArray(branches) || !Array.isArray(categories)) {
+        return res.status(400).json({ error: "Estructura del archivo de respaldo inválida o incompleta." });
+    }
+
+    try {
+        await prisma.$transaction([
+            // 1. Delete all current data
+            prisma.expense.deleteMany(),
+            prisma.branch.deleteMany(),
+            prisma.category.deleteMany(),
+            prisma.exchangeRate.deleteMany(),
+            prisma.recurringPayment.deleteMany(),
+
+            // 2. Insert branches
+            prisma.branch.createMany({
+                data: branches.map(name => ({ name: name.trim() }))
+            }),
+
+            // 3. Insert categories
+            prisma.category.createMany({
+                data: categories.map(name => ({ name: name.trim() }))
+            }),
+
+            // 4. Insert exchange rates
+            prisma.exchangeRate.create({
+                data: {
+                    id: "latest",
+                    bcv: parseFloat(rates?.bcv || 40.0),
+                    paralelo: parseFloat(rates?.paralelo || 40.0),
+                    euro: parseFloat(rates?.euro || 45.0),
+                    usdt: parseFloat(rates?.usdt || 40.0)
+                }
+            }),
+
+            // 5. Insert recurring payments (if present in backup)
+            ...(recurring && Array.isArray(recurring) && recurring.length > 0 ? [
+                prisma.recurringPayment.createMany({
+                    data: recurring.map(r => ({
+                        id: r.id,
+                        description: r.description.trim(),
+                        dayOfMonth: parseInt(r.dayOfMonth),
+                        amount: parseFloat(r.amount),
+                        branch: r.branch.trim(),
+                        category: r.category.trim()
+                    }))
+                })
+            ] : []),
+
+            // 6. Insert expenses (only if there are expenses in the backup)
+            ...(expenses.length > 0 ? [
+                prisma.expense.createMany({
+                    data: expenses.map(e => ({
+                        id: e.id,
+                        date: e.date,
+                        branch: e.branch,
+                        category: e.category,
+                        description: e.description,
+                        amount: parseFloat(e.amount),
+                        currency: e.currency || "USD",
+                        exchangeRate: parseFloat(e.exchangeRate || 1.0),
+                        amountUsd: parseFloat(e.amountUsd || e.amount),
+                        amountVes: parseFloat(e.amountVes || e.amount),
+                        status: e.status
+                    }))
+                })
+            ] : [])
+        ]);
+
+        // Fetch restored data to return to client
+        const updatedExpenses = await prisma.expense.findMany();
+        const updatedBranches = await prisma.branch.findMany();
+        const updatedCategories = await prisma.category.findMany();
+        const updatedRates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } });
+        const updatedRecurring = await prisma.recurringPayment.findMany();
+
+        res.json({
+            expenses: updatedExpenses,
+            branches: updatedBranches.map(b => b.name),
+            categories: updatedCategories.map(c => c.name),
+            rates: updatedRates,
+            recurring: updatedRecurring
+        });
+    } catch (error) {
+        console.error("Error restoring database from backup:", error);
+        res.status(500).json({ error: "Error al restaurar los datos en el servidor." });
+    }
+});
+
+// ============================================================================
+// API ENDPOINTS (PUBLIC - NO AUTH REQUIRED)
+// ============================================================================
+
+// 1. Get all database data
+app.get('/api/data', async (req, res) => {
+    try {
+        await generateRecurringExpenses();
+        const expenses = await prisma.expense.findMany();
+        const dbBranches = await prisma.branch.findMany();
+        const dbCategories = await prisma.category.findMany();
+        const dbRecurring = await prisma.recurringPayment.findMany();
 
         res.json({
             expenses: expenses,
-            branches: filteredBranches.map(b => b.name),
-            categories: dbCategories.map(c => c.name)
+            branches: dbBranches.map(b => b.name),
+            categories: dbCategories.map(c => c.name),
+            recurring: dbRecurring
         });
     } catch (error) {
         console.error("Error fetching data from database:", error);
@@ -398,16 +360,10 @@ app.get('/api/data', authenticateJWT, async (req, res) => {
 });
 
 // 2. Add dynamic expense
-app.post('/api/expenses', authenticateJWT, async (req, res) => {
+app.post('/api/expenses', async (req, res) => {
     let { date, branch, category, description, amount, status, currency } = req.body;
     
-    // Default currency to USD if not specified
     if (!currency) currency = "USD";
-
-    // RBAC: Sede can only add expenses to their own branch
-    if (req.user.role === 'SEDE') {
-        branch = req.user.branch;
-    }
 
     // Server-side validation
     if (!date || !branch || !category || !description || isNaN(amount) || amount <= 0 || !status) {
@@ -416,13 +372,22 @@ app.post('/api/expenses', authenticateJWT, async (req, res) => {
     
     try {
         // Fetch active exchange rates
-        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } }) || { vesRate: 40.0, eurRate: 0.92 };
+        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } }) || { bcv: 40.0 };
         
+        let amountUsd = 0.0;
+        let amountVes = 0.0;
         let rate = 1.0;
-        if (currency === "VES") rate = rates.vesRate;
-        else if (currency === "EUR") rate = rates.eurRate;
 
-        const amountUsd = parseFloat(amount) / rate;
+        if (currency === "VES") {
+            rate = rates.bcv;
+            amountVes = parseFloat(amount);
+            amountUsd = amountVes / rates.bcv;
+        } else {
+            // USD
+            rate = 1.0;
+            amountUsd = parseFloat(amount);
+            amountVes = amountUsd * rates.bcv;
+        }
 
         const allExpenses = await prisma.expense.findMany({ select: { id: true } });
         const nextIdNumber = allExpenses.reduce((max, curr) => {
@@ -446,6 +411,7 @@ app.post('/api/expenses', authenticateJWT, async (req, res) => {
                 currency,
                 exchangeRate: rate,
                 amountUsd,
+                amountVes,
                 status
             }
         });
@@ -458,9 +424,15 @@ app.post('/api/expenses', authenticateJWT, async (req, res) => {
 });
 
 // 3. Edit dynamic expense
-app.put('/api/expenses/:id', authenticateJWT, async (req, res) => {
+app.put('/api/expenses/:id', async (req, res) => {
     const expenseId = req.params.id;
     let { date, branch, category, description, amount, status, currency } = req.body;
+    
+    if (!date || !branch || !category || !description || isNaN(amount) || amount <= 0 || !status) {
+        return res.status(400).json({ error: "Datos de edición incompletos o inválidos." });
+    }
+
+    if (!currency) currency = "USD";
     
     try {
         const existingExpense = await prisma.expense.findUnique({ where: { id: expenseId } });
@@ -468,28 +440,23 @@ app.put('/api/expenses/:id', authenticateJWT, async (req, res) => {
             return res.status(404).json({ error: "Gasto no encontrado." });
         }
 
-        // RBAC Check
-        if (req.user.role === 'SEDE') {
-            if (existingExpense.branch !== req.user.branch) {
-                return res.status(403).json({ error: "Acceso denegado. No puedes editar gastos de otras sedes." });
-            }
-            branch = req.user.branch; // Force self-branch
-        }
-
-        if (!date || !branch || !category || !description || isNaN(amount) || amount <= 0 || !status) {
-            return res.status(400).json({ error: "Datos de edición incompletos o inválidos." });
-        }
-
-        if (!currency) currency = "USD";
-
         // Fetch active exchange rates
-        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } }) || { vesRate: 40.0, eurRate: 0.92 };
+        const rates = await prisma.exchangeRate.findUnique({ where: { id: "latest" } }) || { bcv: 40.0 };
         
+        let amountUsd = 0.0;
+        let amountVes = 0.0;
         let rate = 1.0;
-        if (currency === "VES") rate = rates.vesRate;
-        else if (currency === "EUR") rate = rates.eurRate;
 
-        const amountUsd = parseFloat(amount) / rate;
+        if (currency === "VES") {
+            rate = rates.bcv;
+            amountVes = parseFloat(amount);
+            amountUsd = amountVes / rates.bcv;
+        } else {
+            // USD
+            rate = 1.0;
+            amountUsd = parseFloat(amount);
+            amountVes = amountUsd * rates.bcv;
+        }
 
         const updatedExpense = await prisma.expense.update({
             where: { id: expenseId },
@@ -502,6 +469,7 @@ app.put('/api/expenses/:id', authenticateJWT, async (req, res) => {
                 currency,
                 exchangeRate: rate,
                 amountUsd,
+                amountVes,
                 status
             }
         });
@@ -513,18 +481,13 @@ app.put('/api/expenses/:id', authenticateJWT, async (req, res) => {
 });
 
 // 4. Delete expense
-app.delete('/api/expenses/:id', authenticateJWT, async (req, res) => {
+app.delete('/api/expenses/:id', async (req, res) => {
     const expenseId = req.params.id;
     
     try {
         const existingExpense = await prisma.expense.findUnique({ where: { id: expenseId } });
         if (!existingExpense) {
             return res.status(404).json({ error: "Gasto no encontrado." });
-        }
-
-        // RBAC Check
-        if (req.user.role === 'SEDE' && existingExpense.branch !== req.user.branch) {
-            return res.status(403).json({ error: "Acceso denegado. No puedes eliminar gastos de otras sedes." });
         }
 
         await prisma.expense.delete({
@@ -537,8 +500,8 @@ app.delete('/api/expenses/:id', authenticateJWT, async (req, res) => {
     }
 });
 
-// 5. Add Branch (Admin only)
-app.post('/api/settings/branches', authenticateJWT, requireAdmin, async (req, res) => {
+// 5. Add Branch
+app.post('/api/settings/branches', async (req, res) => {
     const { name } = req.body;
     
     if (!name || name.trim() === "") {
@@ -567,8 +530,8 @@ app.post('/api/settings/branches', authenticateJWT, requireAdmin, async (req, re
     }
 });
 
-// 6. Rename Branch (Cascade rename expenses - Admin only)
-app.put('/api/settings/branches', authenticateJWT, requireAdmin, async (req, res) => {
+// 6. Rename Branch (Cascade rename expenses)
+app.put('/api/settings/branches', async (req, res) => {
     const { oldName, newName } = req.body;
     
     if (!oldName || !newName || newName.trim() === "") {
@@ -595,11 +558,6 @@ app.put('/api/settings/branches', authenticateJWT, requireAdmin, async (req, res
                     where: { branch: oldName },
                     data: { branch: trimmedNewName }
                 }),
-                // Update associated users too
-                prisma.user.updateMany({
-                    where: { branch: oldName },
-                    data: { branch: trimmedNewName }
-                }),
                 prisma.branch.delete({ where: { name: oldName } })
             ]);
         }
@@ -617,8 +575,8 @@ app.put('/api/settings/branches', authenticateJWT, requireAdmin, async (req, res
     }
 });
 
-// 7. Delete Branch (Admin only)
-app.delete('/api/settings/branches/:name', authenticateJWT, requireAdmin, async (req, res) => {
+// 7. Delete Branch
+app.delete('/api/settings/branches/:name', async (req, res) => {
     const branchName = req.params.name;
     
     try {
@@ -634,14 +592,6 @@ app.delete('/api/settings/branches/:name', authenticateJWT, requireAdmin, async 
         if (count > 0) {
             return res.status(400).json({ error: `No se puede eliminar la sede porque tiene ${count} gastos asociados.` });
         }
-
-        // Integrity check: check if there are users associated
-        const userCount = await prisma.user.count({
-            where: { branch: branchName }
-        });
-        if (userCount > 0) {
-            return res.status(400).json({ error: `No se puede eliminar la sede porque tiene ${userCount} usuarios asociados.` });
-        }
         
         await prisma.branch.delete({
             where: { name: branchName }
@@ -655,8 +605,8 @@ app.delete('/api/settings/branches/:name', authenticateJWT, requireAdmin, async 
     }
 });
 
-// 8. Add Category (Admin only)
-app.post('/api/settings/categories', authenticateJWT, requireAdmin, async (req, res) => {
+// 8. Add Category
+app.post('/api/settings/categories', async (req, res) => {
     const { name } = req.body;
     
     if (!name || name.trim() === "") {
@@ -685,8 +635,8 @@ app.post('/api/settings/categories', authenticateJWT, requireAdmin, async (req, 
     }
 });
 
-// 9. Rename Category (Cascade rename expenses - Admin only)
-app.put('/api/settings/categories', authenticateJWT, requireAdmin, async (req, res) => {
+// 9. Rename Category (Cascade rename expenses)
+app.put('/api/settings/categories', async (req, res) => {
     const { oldName, newName } = req.body;
     
     if (!oldName || !newName || newName.trim() === "") {
@@ -730,8 +680,8 @@ app.put('/api/settings/categories', authenticateJWT, requireAdmin, async (req, r
     }
 });
 
-// 10. Delete Category (Admin only)
-app.delete('/api/settings/categories/:name', authenticateJWT, requireAdmin, async (req, res) => {
+// 10. Delete Category
+app.delete('/api/settings/categories/:name', async (req, res) => {
     const catName = req.params.name;
     
     try {
@@ -757,6 +707,71 @@ app.delete('/api/settings/categories/:name', authenticateJWT, requireAdmin, asyn
     } catch (error) {
         console.error("Error deleting category:", error);
         res.status(500).json({ error: "Error interno del servidor al eliminar la categoría." });
+    }
+});
+
+// ============================================================================
+// RECURRING PAYMENTS CONFIGURATION ENDPOINTS
+// ============================================================================
+
+// Get all recurring payments
+app.get('/api/settings/recurring', async (req, res) => {
+    try {
+        const templates = await prisma.recurringPayment.findMany();
+        res.json(templates);
+    } catch (error) {
+        console.error("Error fetching recurring payments:", error);
+        res.status(500).json({ error: "Error al obtener las mensualidades programadas." });
+    }
+});
+
+// Create recurring payment
+app.post('/api/settings/recurring', async (req, res) => {
+    const { description, dayOfMonth, amount, branch, category } = req.body;
+
+    if (!description || !dayOfMonth || isNaN(amount) || amount <= 0 || !branch || !category) {
+        return res.status(400).json({ error: "Datos de mensualidad incompletos o inválidos." });
+    }
+
+    try {
+        await prisma.recurringPayment.create({
+            data: {
+                description: description.trim(),
+                dayOfMonth: parseInt(dayOfMonth),
+                amount: parseFloat(amount),
+                branch: branch.trim(),
+                category: category.trim()
+            }
+        });
+
+        // Run auto-generation check immediately
+        await generateRecurringExpenses();
+
+        const allTemplates = await prisma.recurringPayment.findMany();
+        res.status(201).json(allTemplates);
+    } catch (error) {
+        console.error("Error creating recurring payment:", error);
+        res.status(500).json({ error: "Error interno al programar la mensualidad." });
+    }
+});
+
+// Delete recurring payment
+app.delete('/api/settings/recurring/:id', async (req, res) => {
+    const templateId = req.params.id;
+
+    try {
+        const existing = await prisma.recurringPayment.findUnique({ where: { id: templateId } });
+        if (!existing) {
+            return res.status(404).json({ error: "Mensualidad programada no encontrada." });
+        }
+
+        await prisma.recurringPayment.delete({ where: { id: templateId } });
+        
+        const allTemplates = await prisma.recurringPayment.findMany();
+        res.json(allTemplates);
+    } catch (error) {
+        console.error("Error deleting recurring payment:", error);
+        res.status(500).json({ error: "Error interno al eliminar la mensualidad programada." });
     }
 });
 

@@ -21,46 +21,8 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- Pantalla de Inicio de Sesión (Login) -->
-    <div class="login-overlay" id="login-section">
-        <div class="login-card">
-            <div class="login-header">
-                <div class="login-logo">
-                    <div class="login-logo-icon">
-                        <i data-lucide="trending-up"></i>
-                    </div>
-                </div>
-                <h2 class="login-title">Control de Gastos</h2>
-                <p class="login-subtitle">Dashboard de Control Corporativo</p>
-            </div>
-            
-            <form id="login-form" class="login-form">
-                <div class="login-input-group">
-                    <label for="login-username">Usuario</label>
-                    <div class="login-input-wrapper">
-                        <i data-lucide="user"></i>
-                        <input type="text" id="login-username" placeholder="Ingresa tu usuario" required class="login-input">
-                    </div>
-                </div>
-                
-                <div class="login-input-group">
-                    <label for="login-password">Contraseña</label>
-                    <div class="login-input-wrapper">
-                        <i data-lucide="lock"></i>
-                        <input type="password" id="login-password" placeholder="Ingresa tu contraseña" required class="login-input">
-                    </div>
-                </div>
-                
-                <button type="submit" class="login-btn">
-                    <span>Ingresar</span>
-                    <i data-lucide="log-in"></i>
-                </button>
-            </form>
-        </div>
-    </div>
-
     <!-- Contenedor del Dashboard -->
-    <div class="app-container hidden" id="dashboard-section">
+    <div class="app-container" id="dashboard-section">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -87,18 +49,8 @@
                 </a>
             </nav>
             
-            <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 12px;">
-                <div class="user-profile">
-                    <div class="user-avatar" id="sidebar-user-avatar">AD</div>
-                    <div class="user-info">
-                        <span class="user-name" id="sidebar-user-name">Administrador</span>
-                        <span class="user-role" id="sidebar-user-role">Finanzas</span>
-                    </div>
-                </div>
-                <button class="btn btn-secondary" id="btn-logout" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    <i data-lucide="log-out"></i>
-                    <span>Cerrar Sesión</span>
-                </button>
+            <div class="sidebar-footer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px; opacity: 0.7; font-size: 0.8rem;">
+                <span>Control de Gastos v1.2</span>
             </div>
         </aside>
 
@@ -116,6 +68,28 @@
                     <div class="current-date-badge">
                         <i data-lucide="calendar"></i>
                         <span id="header-date">26 de Mayo, 2026</span>
+                    </div>
+
+                    <!-- Notifications Button & Panel -->
+                    <div class="notifications-wrapper" style="position: relative;">
+                        <button class="theme-toggle-btn" id="btn-notifications" aria-label="Notificaciones" style="position: relative;">
+                            <i data-lucide="bell"></i>
+                            <span class="notification-badge hidden" id="notification-count" style="position: absolute; top: -2px; right: -2px; background-color: var(--danger); color: white; border-radius: 50%; font-size: 0.7rem; padding: 2px 6px; font-weight: 700;">0</span>
+                        </button>
+                        
+                        <!-- Notifications Dropdown -->
+                        <div class="notifications-dropdown hidden" id="notifications-dropdown" style="position: absolute; top: 50px; right: 0; width: 320px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: var(--shadow-lg); z-index: 150; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text-primary);">
+                                    <i data-lucide="bell" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                                    <span>Notificaciones</span>
+                                </h3>
+                                <span style="font-size: 0.72rem; color: var(--text-secondary); cursor: pointer;" id="btn-clear-notifications-badge">Marcar leídas</span>
+                            </div>
+                            <div class="notifications-list" id="notifications-list" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Dinámico -->
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Theme Toggle -->
@@ -140,6 +114,62 @@
                         <div class="print-full-width"><strong>Filtros Activos:</strong> <span id="print-filters-applied">Ninguno</span></div>
                     </div>
                 </div>
+
+                <!-- Sección de Tasas de Cambio de Venezuela -->
+                <section class="kpi-grid rates-panel" id="rates-panel" style="margin-bottom: 24px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                    <!-- Tasa Dólar BCV -->
+                    <div class="kpi-card rate-card">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Dólar BCV (Oficial)</span>
+                            <div class="kpi-icon-box green">
+                                <i data-lucide="landmark"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="rate-bcv-value" style="font-size: 1.6rem;">Bs. 0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="rate-bcv-date">Actualizando...</span>
+                        </div>
+                    </div>
+                    <!-- Tasa Dólar Paralelo -->
+                    <div class="kpi-card rate-card">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Dólar Paralelo</span>
+                            <div class="kpi-icon-box blue">
+                                <i data-lucide="trending-up"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="rate-paralelo-value" style="font-size: 1.6rem;">Bs. 0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="rate-paralelo-date">Actualizando...</span>
+                        </div>
+                    </div>
+                    <!-- Tasa Euro Oficial -->
+                    <div class="kpi-card rate-card">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">Euro BCV</span>
+                            <div class="kpi-icon-box purple">
+                                <i data-lucide="euro"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="rate-euro-value" style="font-size: 1.6rem;">Bs. 0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="rate-euro-date">Actualizando...</span>
+                        </div>
+                    </div>
+                    <!-- Tasa USDT (Binance) -->
+                    <div class="kpi-card rate-card">
+                        <div class="kpi-card-header">
+                            <span class="kpi-title">USDT (Binance P2P)</span>
+                            <div class="kpi-icon-box orange">
+                                <i data-lucide="coins"></i>
+                            </div>
+                        </div>
+                        <div class="kpi-card-value" id="rate-usdt-value" style="font-size: 1.6rem;">Bs. 0.00</div>
+                        <div class="kpi-card-footer">
+                            <span class="kpi-subtext" id="rate-usdt-date">Actualizando...</span>
+                        </div>
+                    </div>
+                </section>
 
                 <!-- KPI Section -->
                 <section class="kpi-grid">
@@ -317,7 +347,8 @@
                                     <th>Sede</th>
                                     <th>Categoría</th>
                                     <th>Descripción</th>
-                                    <th class="text-right">Monto (USD)</th>
+                                    <th class="text-right">Monto ($)</th>
+                                    <th class="text-right">Monto (Bs.)</th>
                                     <th>Estado</th>
                                     <th class="text-center">Acciones</th>
                                 </tr>
@@ -395,14 +426,24 @@
                         <div class="invalid-feedback">Por favor seleccione una categoría.</div>
                     </div>
                     
-                    <!-- Amount -->
+                    <!-- Monto en Dólares ($) -->
                     <div class="form-group">
-                        <label for="form-amount">Monto (USD) *</label>
+                        <label for="form-amount-usd">Monto en Dólares ($) *</label>
                         <div class="amount-input-wrapper">
                             <span class="currency-symbol">$</span>
-                            <input type="number" id="form-amount" min="0.01" step="0.01" placeholder="0.00" required>
+                            <input type="number" id="form-amount-usd" min="0.01" step="0.01" placeholder="0.00" required>
                         </div>
-                        <div class="invalid-feedback">Ingrese un monto mayor a cero.</div>
+                        <div class="invalid-feedback">Ingrese un monto en dólares válido.</div>
+                    </div>
+                    
+                    <!-- Monto en Bolívares (Bs.) -->
+                    <div class="form-group">
+                        <label for="form-amount-ves">Monto en Bolívares (Bs.) *</label>
+                        <div class="amount-input-wrapper">
+                            <span class="currency-symbol">Bs.</span>
+                            <input type="number" id="form-amount-ves" min="0.01" step="0.01" placeholder="0.00" required>
+                        </div>
+                        <div class="invalid-feedback">Ingrese un monto en bolívares válido.</div>
                     </div>
 
                     <!-- Description -->
@@ -462,13 +503,13 @@
                     <i data-lucide="tag"></i>
                     <span>Categorías</span>
                 </button>
-                <button class="tab-btn" id="tab-my-account">
-                    <i data-lucide="user"></i>
-                    <span>Mi Cuenta</span>
+                <button class="tab-btn" id="tab-backup">
+                    <i data-lucide="database"></i>
+                    <span>Respaldo</span>
                 </button>
-                <button class="tab-btn" id="tab-users">
-                    <i data-lucide="users-2"></i>
-                    <span>Usuarios</span>
+                <button class="tab-btn" id="tab-recurring">
+                    <i data-lucide="calendar-days"></i>
+                    <span>Mensualidades</span>
                 </button>
             </div>
             
@@ -508,60 +549,73 @@
                 </div>
             </div>
 
-            <!-- Content Tab: My Account -->
-            <div class="tab-content hidden" id="content-my-account">
-                <form id="my-account-form" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
-                    <div class="form-group">
-                        <label for="account-username" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Usuario Actual</label>
-                        <input type="text" id="account-username" placeholder="Cambiar usuario" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                    </div>
-                    <div class="form-group">
-                        <label for="account-password" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Nueva Contraseña (dejar en blanco para no cambiar)</label>
-                        <input type="password" id="account-password" placeholder="Ingresa nueva contraseña" style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="align-self: flex-end;">
-                        <i data-lucide="save"></i>
-                        <span>Actualizar Perfil</span>
-                    </button>
-                </form>
-            </div>
-
-            <!-- Content Tab: Users (Admin only) -->
-            <div class="tab-content hidden" id="content-users">
-                <form id="create-user-form" style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 24px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div class="form-group">
-                            <label for="new-user-username" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Usuario</label>
-                            <input type="text" id="new-user-username" placeholder="Usuario de la sede" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                        </div>
-                        <div class="form-group">
-                            <label for="new-user-password" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Contraseña</label>
-                            <input type="password" id="new-user-password" placeholder="Contraseña de la sede" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: flex-end;">
-                        <div class="form-group">
-                            <label for="new-user-branch" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Asignar Sede</label>
-                            <select id="new-user-branch" required style="width:100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                                <option value="" disabled selected>Seleccione sede...</option>
-                            </select>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="height: 42px;">
-                            <i data-lucide="user-plus"></i>
-                            <span>Crear Usuario Sede</span>
+            <!-- Content Tab: Backup/Restore -->
+            <div class="tab-content hidden" id="content-backup">
+                <div style="display: flex; flex-direction: column; gap: 20px; padding: 12px 0;">
+                    <!-- Export section -->
+                    <div style="background: rgba(79, 70, 229, 0.05); padding: 16px; border-radius: 8px; border: 1px dashed rgba(79, 70, 229, 0.2);">
+                        <h3 style="margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1rem; color: var(--text-primary);">
+                            <i data-lucide="download" style="width: 18px; height: 18px; color: var(--primary);"></i>
+                            <span>Exportar Copia de Seguridad</span>
+                        </h3>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.4;">
+                            Descarga un archivo conteniendo todos los gastos registrados, sedes, categorías y tasas de cambio configuradas. Podrás usar este archivo para restaurar tu información en cualquier momento.
+                        </p>
+                        <button type="button" class="btn btn-primary" id="btn-export-backup" style="width: 100%; justify-content: center;">
+                            <i data-lucide="download"></i>
+                            <span>Descargar Respaldo (.json)</span>
                         </button>
                     </div>
-                </form>
-                
-                <div style="margin-top: 16px;">
-                    <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);">Usuarios Registrados</h3>
-                    <div class="settings-list-wrapper" style="max-height: 200px;">
-                        <ul class="settings-list" id="settings-users-list">
-                            <!-- Generado dinámicamente -->
-                        </ul>
+
+                    <!-- Import section -->
+                    <div style="background: rgba(239, 68, 68, 0.05); padding: 16px; border-radius: 8px; border: 1px dashed rgba(239, 68, 68, 0.2);">
+                        <h3 style="margin-top: 0; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1rem; color: var(--text-primary);">
+                            <i data-lucide="upload" style="width: 18px; height: 18px; color: var(--danger);"></i>
+                            <span>Importar Copia de Seguridad</span>
+                        </h3>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.4;">
+                            Selecciona un archivo de respaldo (.json) previamente descargado para restaurar tu información. <strong style="color: var(--danger);">¡Atención! Esto borrará y reemplazará todos los datos actuales del sistema.</strong>
+                        </p>
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <input type="file" id="import-backup-file" accept=".json" style="display: none;">
+                            <button type="button" class="btn btn-secondary" id="btn-trigger-import" style="width: 100%; justify-content: center; background-color: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                <i data-lucide="file-up"></i>
+                                <span>Seleccionar Archivo y Restaurar</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Content Tab: Recurring Payments -->
+            <div class="tab-content hidden" id="content-recurring">
+                <form id="add-recurring-form" class="settings-add-form" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px;">
+                        <input type="text" id="new-rec-desc" placeholder="Descripción (ej: Condominio)" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+                        <input type="number" id="new-rec-day" min="1" max="28" placeholder="Día (1-28)" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+                        <input type="number" id="new-rec-amount" min="0.01" step="0.01" placeholder="Monto ($)" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                        <select id="new-rec-branch" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+                            <option value="" disabled selected>Sede...</option>
+                        </select>
+                        <select id="new-rec-category" required style="width: 100%; padding: 8px 12px; background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);">
+                            <option value="" disabled selected>Categoría...</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary" style="padding: 8px 12px;">
+                            <i data-lucide="plus"></i>
+                            <span>Añadir</span>
+                        </button>
+                    </div>
+                </form>
+                <div class="settings-list-wrapper">
+                    <ul class="settings-list" id="settings-recurring-list">
+                        <!-- Generado dinámicamente -->
+                    </ul>
+                </div>
+            </div>
+
+
             
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" id="btn-close-settings-footer">Cerrar</button>
