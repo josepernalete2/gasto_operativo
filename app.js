@@ -2,6 +2,11 @@
 // APP STATE & CONSTANTS
 // ============================================================================
 
+// Clean up obsolete auth or api url settings from localStorage to prevent override conflicts
+localStorage.removeItem("custom_api_url");
+localStorage.removeItem("auth_token");
+localStorage.removeItem("users_data");
+
 let expenses = [];
 let BRANCHES = [];
 let CATEGORIES = [];
